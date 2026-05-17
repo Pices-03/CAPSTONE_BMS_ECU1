@@ -1,0 +1,623 @@
+/**
+ * @file       BmsApp.c
+ * @version    1.0.0
+ * @brief      Top-level BMS application: sensor reads, signal packing, CAN TX.
+ *
+ * @details    Each Task50/100/200/500ms function follows the same pattern:
+ *               1. Read sensor through the corresponding CDD.
+ *               2. Convert raw values into the encoded form described in the
+ *                  CAN message table (§3 of project_context.md).
+ *               3. Call a small pack helper (BmsApp_PackXxx) that lays the
+ *                  bytes into the static SDU.
+ *               4. Hand the SDU to Can_43_FLEXCAN_Write().
+ *
+ *             The pack helpers are isolated so they can be unit-tested
+ *             without an MCU (backlog item #7).
+ */
+
+/*******************************************************************************
+* Includes
+*******************************************************************************/
+#include "Std_Types.h"
+#include "BmsApp.h"
+#include "BmsFault.h"
+#include "BmsSoc.h"
+#include "BmsSoc_Cfg.h"
+#include "CDD_INA219.h"
+#include "CDD_STM32Temp.h"
+
+/*******************************************************************************
+* Definitions
+*******************************************************************************/
+
+/**
+ * @brief   CAN identifiers and DLCs for outbound BMS messages.
+ */
+#define BMS_ELEC_CAN_ID              (0x100U)
+#define BMS_ELEC_DLC                 (8U)
+#define BMS_ELEC_SW_PDU              (0U)
+
+#define BMS_TEMP_CAN_ID              (0x200U)
+#define BMS_TEMP_DLC                 (4U)
+#define BMS_TEMP_SW_PDU              (2U)
+
+#define BMS_VOLT_CAN_ID              (0x210U)
+#define BMS_VOLT_DLC                 (4U)
+#define BMS_VOLT_SW_PDU              (3U)
+
+#define BMS_SOC_CAN_ID               (0x300U)
+#define BMS_SOC_DLC                  (6U)
+#define BMS_SOC_SW_PDU               (4U)
+
+#define BMS_PREDICTION_CAN_ID        (0x400U)
+#define BMS_PREDICTION_SW_PDU        (5U)
+
+/**
+ * @brief   Voltage scaling: Volts -> 0.001 V LSB (CAN 0x100 / 0x210).
+ */
+#define BMS_V_TO_MV_SCALE            (1000.0f)
+
+/**
+ * @brief   Current scaling: mA -> 0.1 mA LSB (CAN 0x100).
+ */
+#define BMS_MA_TO_RAW_SCALE          (10.0f)
+
+/**
+ * @brief   Power scaling: mW -> 0.1 mW LSB (CAN 0x100).
+ */
+#define BMS_MW_TO_RAW_SCALE          (10.0f)
+
+/**
+ * @brief   Temperature encoding: raw_8 = (temp_C + 40) / 0.5.
+ */
+#define BMS_TEMP_OFFSET_C            (40.0f)
+#define BMS_TEMP_LSB_C               (0.5f)
+
+/**
+ * @brief   Hysteresis thresholds for CAN 0x300 byte 2 state selection.
+ *
+ * @details Dùng raw curr (0.1 mA LSB) với hysteresis 4 mA (enter ±7, exit ±3)
+ *          để chống flicker khi noise INA219 dao động quanh điểm zero ảo.
+ *
+ *          Khi BMS_SOC_BIDIR_SIM_ENABLE = STD_ON (demo biến trở):
+ *            curr_raw đã là VIRTUAL signed (qua BmsSoc_VirtualCurrent_mA).
+ *          Khi STD_OFF (pin thật):
+ *            curr_raw là INA219 signed thật.
+ *          Cả 2 trường hợp logic state byte giống nhau, chỉ là nguồn signed
+ *          khác nhau.
+ */
+#define BMS_STATE_ENTER_DCHG_RAW     (70)    /* +7.0 mA → vào DISCHARGING */
+#define BMS_STATE_EXIT_DCHG_RAW      (30)    /* <+3.0 mA → về IDLE */
+#define BMS_STATE_ENTER_CHG_RAW      (-70)   /* −7.0 mA → vào CHARGING */
+#define BMS_STATE_EXIT_CHG_RAW       (-30)   /* >−3.0 mA → về IDLE */
+
+/*******************************************************************************
+* Prototypes
+*******************************************************************************/
+
+static void BmsApp_PackElecMeasure(uint16 volt_mV, sint16 curr_raw, uint16 pow_raw);
+static void BmsApp_PackVoltage(uint16 volt_mV);
+static void BmsApp_PackSoc(uint8 soc_raw, sint16 curr_raw);
+static void BmsApp_PackTemperature(uint8 temp_raw, uint8 status);
+static void BmsApp_TxBmsFrame(Can_HwHandleType hoh, uint32 canId, PduIdType swPduHandle,
+                              uint8 dlc, uint8 *pSdu);
+static void BmsApp_HandleHmiCommand(const uint8 *pData);
+
+/*******************************************************************************
+* Variables
+*******************************************************************************/
+
+/**
+ * @brief   Static SDUs for outbound CAN messages.
+ * @details Declared at file scope so the FlexCAN mailbox can reference them
+ *          across calls. Each is sized to its DLC.
+ */
+static uint8 s_sduElecMeasure[BMS_ELEC_DLC]                  = {0U};
+static uint8 s_sduTemperature[BMS_TEMP_DLC]                  = {0U};
+static uint8 s_sduVoltage[BMS_VOLT_DLC]                      = {0U};
+static uint8 s_sduSoc[BMS_SOC_DLC]                           = {0U};
+static uint8 s_sduPrediction[BMS_PRED_DLC]                   = {0U};
+
+/**
+ * @brief   Last-known sensor readings (used across tasks of different rates).
+ * @details All variables here are file-scope static so they persist across
+ *          task invocations AND remain visible in the S32DS Variables /
+ *          Expressions debugger view. Inspect these names directly:
+ *
+ *            s_lastVoltV       - bus voltage in volts (float)
+ *            s_lastCurrMa      - current in milliamps (float, signed)
+ *            s_lastPowMw       - power in milliwatts (float)
+ *            s_lastTempC       - temperature in degrees Celsius (float)
+ *            s_lastVoltMv      - bus voltage in 0.001 V LSB (uint16)
+ *            s_lastCurrRaw     - current in 0.1 mA LSB (sint16)
+ *            s_lastSocRaw      - SOC in 0.5%% LSB (uint8, 0..200)
+ *            s_lastTempRaw     - temperature in 0.5 deg C LSB, offset -40 (uint8)
+ */
+/* All telemetry is `volatile` so the optimiser cannot keep the value in
+ * a register or constant-fold it away -- otherwise S32DS shows
+ * "<optimized out>" in Expression view at -O0 still occasionally and
+ * always at -Os/-O1.
+ */
+static volatile float32 s_lastVoltV    = 0.0f;
+static volatile float32 s_lastCurrMa   = 0.0f;
+static volatile float32 s_lastPowMw    = 0.0f;
+static volatile float32 s_lastTempC    = 0.0f;
+static volatile uint16  s_lastVoltMv   = 0U;
+static volatile sint16  s_lastCurrRaw  = 0;
+static volatile uint8   s_lastSocRaw   = 0U;
+static volatile uint8   s_lastTempRaw  = 0U;
+
+/**
+ * @brief   Last-known driver return codes (visible in debugger).
+ * @details Useful when CAN frames don't appear on the bus -- inspect these
+ *          to localise the failure:
+ *
+ *            s_lastInaStatusV - INA219 voltage read return (0=OK)
+ *            s_lastInaStatusI - INA219 current read return
+ *            s_lastInaStatusP - INA219 power read return
+ *            s_lastTempStatus - STM32 temperature read return (0=OK,
+ *                               1=TIMEOUT, 2=HEADER, 3=CRC, 4=RANGE, 5=PARAM)
+ */
+static volatile uint8 s_lastInaStatusV = 0U;
+static volatile uint8 s_lastInaStatusI = 0U;
+static volatile uint8 s_lastInaStatusP = 0U;
+static volatile uint8 s_lastTempStatus = 0U;
+
+/**
+ * @brief   CAN driver-level counters and last-result (visible in debugger).
+ * @details Watch-list for CAN troubleshooting:
+ *
+ *            s_canTxConfirmCnt  - increments when CanIf_TxConfirmation runs
+ *                                 (proves frames physically left the MCU)
+ *            s_canTxFlag        - set TRUE on each TX confirm
+ *            s_canRxFlag        - set TRUE on each RX indication
+ *            s_canTxLastResult  - return code of the most recent
+ *                                 Can_43_FLEXCAN_Write (E_OK == 0)
+ *            s_canTxFailCnt     - increments every time Can_Write returns
+ *                                 something other than E_OK (mailbox busy
+ *                                 or driver not started)
+ *            s_canTxAttemptCnt  - increments on every Can_Write call
+ *                                 regardless of result
+ */
+static volatile uint8          s_canTxConfirmCnt  = 0U;
+static volatile boolean        s_canTxFlag        = FALSE;
+static volatile boolean        s_canRxFlag        = FALSE;
+static volatile Std_ReturnType s_canTxLastResult  = E_OK;
+static volatile uint32         s_canTxFailCnt     = 0U;
+static volatile uint32         s_canTxAttemptCnt  = 0U;
+
+/*******************************************************************************
+* Code
+*******************************************************************************/
+
+/**
+ * @brief   Pack BMS_ElecMeasure (0x100, 8 bytes) into s_sduElecMeasure.
+ *
+ * @param[in] volt_mV   Bus voltage in 0.001 V LSB.
+ * @param[in] curr_raw  Current in 0.1 mA LSB (signed).
+ * @param[in] pow_raw   Power in 0.1 mW LSB.
+ *
+ * @return  void
+ *
+ * @post    s_sduElecMeasure layout:
+ *            B0-B1 voltage, B2-B3 current, B4-B5 power, B6 status, B7 reserved.
+ */
+static void BmsApp_PackElecMeasure(uint16 volt_mV, sint16 curr_raw, uint16 pow_raw)
+{
+    s_sduElecMeasure[0U] = (uint8)(volt_mV >> 8U);
+    s_sduElecMeasure[1U] = (uint8)(volt_mV & 0xFFU);
+    s_sduElecMeasure[2U] = (uint8)((uint16)curr_raw >> 8U);
+    s_sduElecMeasure[3U] = (uint8)((uint16)curr_raw & 0xFFU);
+    s_sduElecMeasure[4U] = (uint8)(pow_raw >> 8U);
+    s_sduElecMeasure[5U] = (uint8)(pow_raw & 0xFFU);
+    s_sduElecMeasure[6U] = BMS_INA219_STATUS_OK;
+    s_sduElecMeasure[7U] = 0x00U;
+}
+
+/**
+ * @brief   Pack BMS_Voltage (0x210, 4 bytes) into s_sduVoltage.
+ */
+static void BmsApp_PackVoltage(uint16 volt_mV)
+{
+    s_sduVoltage[0U] = (uint8)(volt_mV >> 8U);
+    s_sduVoltage[1U] = (uint8)(volt_mV & 0xFFU);
+    s_sduVoltage[2U] = BMS_INA219_STATUS_OK;
+    s_sduVoltage[3U] = 0x00U;
+}
+
+/**
+ * @brief   Pack BMS_SOC (0x300, 6 bytes) into s_sduSoc.
+ *
+ * @param[in] soc_raw   SOC in 0.5% LSB.
+ * @param[in] curr_raw  Current in 0.1 mA LSB (used to pick charge/discharge state).
+ */
+static void BmsApp_PackSoc(uint8 soc_raw, sint16 curr_raw)
+{
+    /* State machine với hysteresis cho IDLE/CHARGING/DISCHARGING.
+     * Lưu state qua các lần gọi (static) để giữ hysteresis. */
+    static uint8 s_busState = BMS_STATE_IDLE;
+
+    switch (s_busState)
+    {
+        case BMS_STATE_DISCHARGING:
+            if (curr_raw < BMS_STATE_EXIT_DCHG_RAW)
+            {
+                s_busState = BMS_STATE_IDLE;
+            }
+            break;
+
+        case BMS_STATE_CHARGING:
+            if (curr_raw > BMS_STATE_EXIT_CHG_RAW)
+            {
+                s_busState = BMS_STATE_IDLE;
+            }
+            break;
+
+        case BMS_STATE_IDLE:
+        default:
+            if (curr_raw > BMS_STATE_ENTER_DCHG_RAW)
+            {
+                s_busState = BMS_STATE_DISCHARGING;
+            }
+            else if (curr_raw < BMS_STATE_ENTER_CHG_RAW)
+            {
+                s_busState = BMS_STATE_CHARGING;
+            }
+            else
+            {
+                /* Stay IDLE */
+            }
+            break;
+    }
+
+    s_sduSoc[0U] = soc_raw;
+    s_sduSoc[1U] = soc_raw;                                        /* SOH = SOC for demo */
+    s_sduSoc[2U] = s_busState;
+    s_sduSoc[3U] = 0x00U;                                          /* energy MSB -- TODO real value */
+    s_sduSoc[4U] = 0x00U;                                          /* energy LSB */
+    s_sduSoc[5U] = BMS_SOC_METHOD_COULOMB;                         /* method = Coulomb counting (v2) */
+}
+
+/**
+ * @brief   Pack BMS_Temperature (0x200, 4 bytes) into s_sduTemperature.
+ */
+static void BmsApp_PackTemperature(uint8 temp_raw, uint8 status)
+{
+    s_sduTemperature[0U] = temp_raw;
+    s_sduTemperature[1U] = temp_raw;
+    s_sduTemperature[2U] = temp_raw;
+    s_sduTemperature[3U] = status;
+}
+
+/**
+ * @brief   Common helper: transmit one BMS CAN frame through the FlexCAN driver.
+ */
+static void BmsApp_TxBmsFrame(Can_HwHandleType hoh, uint32 canId, PduIdType swPduHandle,
+                              uint8 dlc, uint8 *pSdu)
+{
+    Can_PduType    pdu;
+    Std_ReturnType ret;
+
+    pdu.id          = canId;
+    pdu.swPduHandle = swPduHandle;
+    pdu.length      = dlc;
+    pdu.sdu         = pSdu;
+
+    ret = Can_43_FLEXCAN_Write(hoh, &pdu);
+
+    s_canTxAttemptCnt++;
+    s_canTxLastResult = ret;
+    if (ret != E_OK)
+    {
+        s_canTxFailCnt++;
+    }
+}
+
+/**
+ * @brief   Dispatch HMI command bytes received on CAN 0x710.
+ */
+static void BmsApp_HandleHmiCommand(const uint8 *pData)
+{
+    if (pData != NULL_PTR)
+    {
+        switch (pData[0U])
+        {
+            case BMS_HMI_CMD_RESET_FAULT:
+                BmsFault_Reset();
+                break;
+
+            case BMS_HMI_CMD_CALIB_SOC:
+                /* pData[1] carries the target SOC in PERCENT (0..100).
+                 * Re-seed the integrator -- the SDU will be re-populated on
+                 * the next Task100ms tick from the freshly cached raw value. */
+                BmsSoc_SetSocPct(pData[1U]);
+                break;
+
+            case BMS_HMI_CMD_SNAPSHOT:
+                BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_ElecMeasure,
+                                  BMS_ELEC_CAN_ID, BMS_ELEC_SW_PDU,
+                                  BMS_ELEC_DLC, s_sduElecMeasure);
+                BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Temperature,
+                                  BMS_TEMP_CAN_ID, BMS_TEMP_SW_PDU,
+                                  BMS_TEMP_DLC, s_sduTemperature);
+                BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Voltage,
+                                  BMS_VOLT_CAN_ID, BMS_VOLT_SW_PDU,
+                                  BMS_VOLT_DLC, s_sduVoltage);
+                BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_SOC,
+                                  BMS_SOC_CAN_ID, BMS_SOC_SW_PDU,
+                                  BMS_SOC_DLC, s_sduSoc);
+                break;
+
+            default:
+                /* Ignore unknown HMI command */
+                break;
+        }
+    }
+}
+
+/**
+ * @brief   See BmsApp.h.
+ */
+void BmsApp_Init(void)
+{
+    uint8 i;
+
+    for (i = 0U; i < BMS_ELEC_DLC; i++) { s_sduElecMeasure[i] = 0U; }
+    for (i = 0U; i < BMS_TEMP_DLC; i++) { s_sduTemperature[i] = 0U; }
+    for (i = 0U; i < BMS_VOLT_DLC; i++) { s_sduVoltage[i]     = 0U; }
+    for (i = 0U; i < BMS_SOC_DLC;  i++) { s_sduSoc[i]         = 0U; }
+    for (i = 0U; i < BMS_PRED_DLC; i++) { s_sduPrediction[i]  = 0U; }
+
+    s_lastVoltV    = 0.0f;
+    s_lastCurrMa   = 0.0f;
+    s_lastPowMw    = 0.0f;
+    s_lastTempC    = 0.0f;
+    s_lastVoltMv   = 0U;
+    s_lastCurrRaw  = 0;
+    s_lastSocRaw   = 0U;
+    s_lastTempRaw  = 0U;
+
+    s_lastInaStatusV = 0U;
+    s_lastInaStatusI = 0U;
+    s_lastInaStatusP = 0U;
+    s_lastTempStatus = 0U;
+
+    s_canTxConfirmCnt = 0U;
+    s_canTxFlag       = FALSE;
+    s_canRxFlag       = FALSE;
+    s_canTxLastResult = E_OK;
+    s_canTxFailCnt    = 0U;
+    s_canTxAttemptCnt = 0U;
+
+    /* Seed the Coulomb-counting SOC integrator.
+     * In demo mode (BMS_SOC_DEMO_MODE == STD_ON) the voltage argument is
+     * ignored -- the seed comes from BMS_SOC_INITIAL_PCT in BmsSoc_Cfg.h.
+     * In real-pack mode we would replace 0U with a freshly read voltage. */
+    BmsSoc_Init(0U);
+}
+
+/**
+ * @brief   See BmsApp.h.
+ */
+void BmsApp_Task50ms(void)
+{
+    INA219_ReturnType retV;
+    INA219_ReturnType retI;
+    INA219_ReturnType retP;
+    uint16            pow_raw;
+
+    pow_raw = 0U;
+
+    /* Sensor đã tự scale raw → engineering units (float). Không cần
+     * thêm tầng integer API ở CDD -- BmsSoc_Update sẽ tự cast 1 lần ở
+     * biên rồi tích phân integer trong nội bộ. */
+    retV = CDD_INA219_ReadBusVoltage_V(&s_lastVoltV);
+    retI = CDD_INA219_ReadCurrent_mA(&s_lastCurrMa);
+    retP = CDD_INA219_ReadPower_mW(&s_lastPowMw);
+
+    /* Cache statuses so the debugger can see why a frame did/didn't go out. */
+    s_lastInaStatusV = (uint8)retV;
+    s_lastInaStatusI = (uint8)retI;
+    s_lastInaStatusP = (uint8)retP;
+
+    if ((retV == INA219_OK) && (retI == INA219_OK) && (retP == INA219_OK))
+    {
+        float32 virt_curr_mA;
+        float32 virt_pow_mW;
+        sint32  curr_raw_s32;
+        sint32  pow_raw_s32;
+
+        /* Read OK -- clear any previously-latched INA comm error so the
+         * HMI banner auto-clears as soon as the bus recovers. */
+        BmsFault_SetCommError(BMS_FAULT_SRC_INA_COMM, FALSE, 0U);
+
+        /* ────── Unidir → bidir virtual mapping (demo biến trở) ──────
+         * Raw current INA219 luôn dương; map qua zero-point để có
+         * khái niệm sạc/xả ảo. Khi BMS_SOC_BIDIR_SIM_ENABLE = STD_OFF
+         * (gắn pin thật), helper trả về raw passthrough. */
+        virt_curr_mA = BmsSoc_VirtualCurrent_mA(s_lastCurrMa);
+
+        /* Virtual power = virtual_I × V (signed): dương = xả, âm = sạc.
+         * Dùng |virtual_pow| cho averaging prediction. */
+        virt_pow_mW  = virt_curr_mA * s_lastVoltV;
+
+        /* CAN encoding cho 0x100 -- defensive saturation, dùng VIRTUAL
+         * values để HMI thấy chiều sạc/xả đúng cho demo:
+         *   volt: 0.001 V/LSB → s_lastVoltMv = V × 1000 (uint16).
+         *   curr: 0.1 mA/LSB  → virtual mA × 10 (sint16 range).
+         *   pow : 0.1 mW/LSB  → |virtual mW| × 10 (uint16 range). */
+        s_lastVoltMv  = (uint16)(s_lastVoltV * BMS_V_TO_MV_SCALE);
+
+        curr_raw_s32 = (sint32)(virt_curr_mA * BMS_MA_TO_RAW_SCALE);
+        if (curr_raw_s32 >  32767) { curr_raw_s32 =  32767; }
+        if (curr_raw_s32 < -32768) { curr_raw_s32 = -32768; }
+        s_lastCurrRaw = (sint16)curr_raw_s32;
+
+        pow_raw_s32 = (sint32)((virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW)
+                                * BMS_MW_TO_RAW_SCALE);
+        if (pow_raw_s32 > 65535) { pow_raw_s32 = 65535; }
+        if (pow_raw_s32 < 0)     { pow_raw_s32 = 0;     }
+        pow_raw = (uint16)pow_raw_s32;
+
+        /* Update debug mirror để S32DS Expressions hiển thị giá trị ảo */
+        s_lastCurrMa = virt_curr_mA;   /* shadow original raw with virtual */
+        s_lastPowMw  = virt_pow_mW;
+
+        /* Feed integrator với VIRTUAL current — SoC tăng/giảm theo demo */
+        BmsSoc_Update(virt_curr_mA);
+
+        /* Feed 1-minute power moving-average với |VIRTUAL power| (magnitude)
+         * — divisor cho TTE/TTF luôn dương. */
+        BmsSoc_AccumulatePower(virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW);
+
+        BmsApp_PackElecMeasure(s_lastVoltMv, s_lastCurrRaw, pow_raw);
+        BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_ElecMeasure,
+                          BMS_ELEC_CAN_ID, BMS_ELEC_SW_PDU,
+                          BMS_ELEC_DLC, s_sduElecMeasure);
+
+        BmsFault_CheckElec(s_lastVoltMv, s_lastCurrRaw);
+    }
+    else
+    {
+        /* INA219 I2C error -- raise dedicated comm fault (HMI will NOT
+         * misinterpret as overtemperature). */
+        BmsFault_SetCommError(BMS_FAULT_SRC_INA_COMM, TRUE, (uint8)retV);
+    }
+}
+
+/**
+ * @brief   See BmsApp.h.
+ */
+void BmsApp_Task100ms(void)
+{
+    /* SOC is now produced by the Coulomb-counting integrator (BmsSoc_Update
+     * fed every 50 ms in Task50ms). Just snapshot the cached raw value. */
+    s_lastSocRaw = BmsSoc_GetSocRaw();
+
+    BmsApp_PackSoc(s_lastSocRaw, s_lastCurrRaw);
+    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_SOC,
+                      BMS_SOC_CAN_ID, BMS_SOC_SW_PDU,
+                      BMS_SOC_DLC, s_sduSoc);
+
+    BmsApp_PackVoltage(s_lastVoltMv);
+    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Voltage,
+                      BMS_VOLT_CAN_ID, BMS_VOLT_SW_PDU,
+                      BMS_VOLT_DLC, s_sduVoltage);
+}
+
+/**
+ * @brief   See BmsApp.h.
+ */
+void BmsApp_Task200ms(void)
+{
+    STM32_Temp_ReturnType retT;
+    float32               temp_C;
+    uint8                 temp_raw;
+
+    temp_C   = 0.0f;
+    temp_raw = 0U;
+
+    retT = CDD_STM32Temp_Read(&temp_C);
+
+    /* Cache the status code so it's visible in the debugger every 200 ms. */
+    s_lastTempStatus = (uint8)retT;
+
+    if (retT == STM32_TEMP_OK)
+    {
+        /* Read OK -- clear STM32 comm latch (auto-cancels yellow strip). */
+        BmsFault_SetCommError(BMS_FAULT_SRC_STM_COMM, FALSE, 0U);
+
+        temp_raw = (uint8)((temp_C + BMS_TEMP_OFFSET_C) / BMS_TEMP_LSB_C);
+
+        /* Cache decoded values for debugger watch. */
+        s_lastTempC   = temp_C;
+        s_lastTempRaw = temp_raw;
+
+        BmsApp_PackTemperature(temp_raw, BMS_TEMP_STATUS_OK);
+        BmsFault_CheckTemp(temp_C, temp_raw);
+    }
+    else
+    {
+        BmsApp_PackTemperature(0U, BMS_TEMP_STATUS_FAIL);
+        /* STM32 I2C / CRC error -- raise STM32 COMM fault. */
+        BmsFault_SetCommError(BMS_FAULT_SRC_STM_COMM, TRUE, (uint8)retT);
+    }
+
+    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Temperature,
+                      BMS_TEMP_CAN_ID, BMS_TEMP_SW_PDU,
+                      BMS_TEMP_DLC, s_sduTemperature);
+}
+
+/**
+ * @brief   See BmsApp.h.
+ */
+void BmsApp_Task500ms(void)
+{
+    BmsSoc_PredictionPack(s_lastVoltV, s_lastCurrMa, s_lastPowMw,
+                          s_lastSocRaw, s_sduPrediction);
+    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Prediction,
+                      BMS_PREDICTION_CAN_ID, BMS_PREDICTION_SW_PDU,
+                      BMS_PRED_DLC, s_sduPrediction);
+}
+
+/*******************************************************************************
+* AUTOSAR CanIf callbacks (referenced from generated FlexCAN config)
+*******************************************************************************/
+
+/**
+ * @brief   I2c driver callback. Currently unused; required by I2c config.
+ */
+void I2c_Callback(uint8 u8Event, uint8 u8Channel)
+{
+    (void)u8Event;
+    (void)u8Channel;
+}
+
+/**
+ * @brief   FlexCAN bus-off notification. Currently unused.
+ */
+void CanIf_ControllerBusOff(uint8 ControllerId)
+{
+    (void)ControllerId;
+}
+
+/**
+ * @brief   FlexCAN controller-mode change notification. Currently unused.
+ */
+void CanIf_ControllerModeIndication(uint8 ControllerId,
+                                    Can_ControllerStateType ControllerMode)
+{
+    (void)ControllerId;
+    (void)ControllerMode;
+}
+
+/**
+ * @brief   FlexCAN TX-confirmation callback (interrupt context).
+ *
+ * @details Increments transmission counter and sets TX flag for super-loop
+ *          observation. Conforms to AUTOSAR SWS_CANIF prototype.
+ */
+void CanIf_TxConfirmation(PduIdType CanTxPduId)
+{
+    (void)CanTxPduId;
+    s_canTxConfirmCnt++;
+    s_canTxFlag = TRUE;
+}
+
+/**
+ * @brief   FlexCAN RX-indication callback (interrupt context).
+ *
+ * @details Dispatches HMI commands received on CAN 0x710 byte 0.
+ */
+void CanIf_RxIndication(const Can_HwType  *Mailbox,
+                        const PduInfoType *PduInfoPtr)
+{
+    s_canRxFlag = TRUE;
+    if ((Mailbox != NULL_PTR) && (PduInfoPtr != NULL_PTR))
+    {
+        if (Mailbox->CanId == BMS_HMI_CMD_CAN_ID)
+        {
+            BmsApp_HandleHmiCommand(PduInfoPtr->SduDataPtr);
+        }
+    }
+}

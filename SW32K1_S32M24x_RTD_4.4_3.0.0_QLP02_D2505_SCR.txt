@@ -1,0 +1,46 @@
+NXP Software Content Register
+
+Release Name:     S32K1_S32M24x Real-Time Drivers AUTOSAR 4.4 Version 3.0.0 QLP02
+
+Release Date:     30-May-2025
+
+Description:      This is the NXP S32K1_S32M24x Real-Time Drivers AUTOSAR 4.4 Version 3.0.0 QLP02 release for S32K1 & S32M24x platforms. 
+                  All software included in this release has RFP quality status for S32K1 and S32M24x platforms in terms of testing and quality documentation.
+                  RTM releases contain all planned features implemented and tested. RFP releases can be used in production. For more details, check the Release notes document.
+
+Outgoing License: LA_OPT_NXP_Software_License v62 May 2025 - Additional distribution license granted - Section 2.3 applies
+
+Automotive Real-Time Drivers with support for Elektrobit Tresos and Design Studio
+                  Description: NXP Automotive Real-Time Drivers package including support for AUTOSAR with EB Tresos and Design Studio.
+                  Version: 3.0.0 QLP02
+                  Author:  NXP
+                  License: LA_OPT_NXP_Software_License v62 May 2025 - Additional distribution license granted - Section 2.3 applies
+                  Format:  source
+                  Location (installer): eclipse/plugins/
+                  Location (part of S32 DS): <S32DS installation>/S32DS/software/PlatformSDK_S32K1_S32M24/RTD
+
+Platform header files
+                  Description: Header Files For S32K1XX RM Rev.14 and S32M24x RM Rev.5
+                  Version: S32K1XX: rev. 1.1 2022-01-21, rev. 1.0 2021-02-26, rev. 1.1 2022-01-24, rev. 1.1 2022-02-01, rev. 1.2 2022-02-10, rev. 1.1 2022-02-07, rev. 1.4 2022-02-09, rev. 1.1 2022-01-31, rev. 1.1 2022-02-02
+                           S32M24X: rev. 1.5 2024-08-01
+                  Author:  NXP
+                  License: Proprietary - LA_OPT_NXP_Software_License v62 May 2025 - Additional distribution license granted - Section 2.3 applies
+                  Format:  source
+                  Location (installer): plugins/BaseNXP_TS_T40D2M30I0R0/header/
+
+S32 Configuration Tools
+                  (Available only as part of S32 DS installation)
+                  Description: Check for NXP S32 Configuration Tools component SCR in <S32DS installation>\SCR
+                  Version: 1.8
+                  Author:  NXP
+                  License: Proprietary - LA_OPT_NXP_Software_License v60 February 2025 - No distribution permited - clause 2.2
+                  Format:  source
+                  Location (part of S32 DS): <S32DS installation>\eclipse\mcu_data\processors\S32*\PlatformSDK_S32K1_S32M24\scripts
+
+Slicing-by-8
+                  Description: CRC generation algorithm
+                  Version: 1.0
+                  Author:  Intel
+                  License: BSD 2-clause "New" or "Revised" License
+                  Format:  source
+                  Location (installer): eclipse\plugins\Crc_TS_T40D2M30I0R0\include\Crc_Ip_Lookup_Tables_Slice_By_N.h
