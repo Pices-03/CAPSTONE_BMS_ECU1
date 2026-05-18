@@ -117,7 +117,7 @@ extern "C"{
 * @brief    GPT_TIME_ELAPSED_API switch
 * @details  Enable/disable GPT_VERSION_INFO_API.
 */
-#define GPT_TIME_ELAPSED_API (STD_OFF)
+#define GPT_TIME_ELAPSED_API (STD_ON)
 /*================================================================================================*/
 /**
 * @brief    GPT_TIME_REMAINING_API switch

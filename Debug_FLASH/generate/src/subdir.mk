@@ -20,6 +20,7 @@ C_SRCS += \
 ../generate/src/FlexCAN_Ip_PBcfg.c \
 ../generate/src/Flexio_I2c_Ip_PBcfg.c \
 ../generate/src/Flexio_Mcl_Ip_PBcfg.c \
+../generate/src/Ftfc_Mem_InFls_Ip_Cfg.c \
 ../generate/src/Ftm_Gpt_Ip_PBcfg.c \
 ../generate/src/Gpt_Cfg.c \
 ../generate/src/Gpt_Ipw_PBcfg.c \
@@ -30,6 +31,7 @@ C_SRCS += \
 ../generate/src/Lptmr_Gpt_Ip_PBcfg.c \
 ../generate/src/Mcu_Cfg.c \
 ../generate/src/Mcu_PBcfg.c \
+../generate/src/Mem_43_INFLS_Cfg.c \
 ../generate/src/Mpu_Ip_Cfg.c \
 ../generate/src/OsIf_Cfg.c \
 ../generate/src/Platform_Cfg.c \
@@ -62,6 +64,7 @@ OBJS += \
 ./generate/src/FlexCAN_Ip_PBcfg.o \
 ./generate/src/Flexio_I2c_Ip_PBcfg.o \
 ./generate/src/Flexio_Mcl_Ip_PBcfg.o \
+./generate/src/Ftfc_Mem_InFls_Ip_Cfg.o \
 ./generate/src/Ftm_Gpt_Ip_PBcfg.o \
 ./generate/src/Gpt_Cfg.o \
 ./generate/src/Gpt_Ipw_PBcfg.o \
@@ -72,6 +75,7 @@ OBJS += \
 ./generate/src/Lptmr_Gpt_Ip_PBcfg.o \
 ./generate/src/Mcu_Cfg.o \
 ./generate/src/Mcu_PBcfg.o \
+./generate/src/Mem_43_INFLS_Cfg.o \
 ./generate/src/Mpu_Ip_Cfg.o \
 ./generate/src/OsIf_Cfg.o \
 ./generate/src/Platform_Cfg.o \
@@ -104,6 +108,7 @@ C_DEPS += \
 ./generate/src/FlexCAN_Ip_PBcfg.d \
 ./generate/src/Flexio_I2c_Ip_PBcfg.d \
 ./generate/src/Flexio_Mcl_Ip_PBcfg.d \
+./generate/src/Ftfc_Mem_InFls_Ip_Cfg.d \
 ./generate/src/Ftm_Gpt_Ip_PBcfg.d \
 ./generate/src/Gpt_Cfg.d \
 ./generate/src/Gpt_Ipw_PBcfg.d \
@@ -114,6 +119,7 @@ C_DEPS += \
 ./generate/src/Lptmr_Gpt_Ip_PBcfg.d \
 ./generate/src/Mcu_Cfg.d \
 ./generate/src/Mcu_PBcfg.d \
+./generate/src/Mem_43_INFLS_Cfg.d \
 ./generate/src/Mpu_Ip_Cfg.d \
 ./generate/src/OsIf_Cfg.d \
 ./generate/src/Platform_Cfg.d \

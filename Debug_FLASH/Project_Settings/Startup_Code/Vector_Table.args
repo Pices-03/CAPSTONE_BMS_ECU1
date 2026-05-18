@@ -1,6 +1,6 @@
 -c
 -I../RTD/include
--I"D:/CODE_NXP/CAPSTONE2/Application/BmsApp"
+-I"D:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsApp"
 -x assembler-with-cpp
 -g3
 -mcpu=cortex-m4
@@ -9,4 +9,4 @@
 -mfloat-abi=hard
 -specs=nano.specs
 -specs=nosys.specs
---sysroot="C:/NXP/S32DS.3.6.6/S32DS/build_tools/gcc_b1620/gcc-6.3-arm32-eabi/arm-none-eabi/newlib"
+--sysroot="D:/Tools/S32DS.3.6.3/S32DS/build_tools/gcc_b1620/gcc-6.3-arm32-eabi/arm-none-eabi/newlib"

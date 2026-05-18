@@ -25,6 +25,7 @@
 #include "BmsSoc_Cfg.h"
 #include "CDD_INA219.h"
 #include "CDD_STM32Temp.h"
+#include "BMS_Nvm.h"
 
 /*******************************************************************************
 * Definitions
@@ -102,6 +103,26 @@ static void BmsApp_PackTemperature(uint8 temp_raw, uint8 status);
 static void BmsApp_TxBmsFrame(Can_HwHandleType hoh, uint32 canId, PduIdType swPduHandle,
                               uint8 dlc, uint8 *pSdu);
 static void BmsApp_HandleHmiCommand(const uint8 *pData);
+
+/**
+ * @brief   Khởi tạo NVM và khôi phục SOC từ Flash (nếu có)
+ * @details Gọi từ BmsApp_Init() để đọc SOC đã lưu từ lần trước.
+ *          Nếu đọc thành công, sẽ gán lại SOC cho integrator.
+ *
+ * @param   void
+ * @return  void
+ */
+static void BmsApp_NvmRestoreSoc(void);
+
+/**
+ * @brief   Kiểm tra và lưu SOC vào Flash nếu thay đổi đủ ngưỡng.
+ * @details Gọi từ BmsApp_Task100ms() để lưu SOC định kỳ.
+ *          Chỉ lưu khi SOC thay đổi > 1% để tránh mài mòn Flash.
+ *
+ * @param   currentSocPercent  SOC hiện tại (0.0 - 100.0)
+ * @return  void
+ */
+static void BmsApp_NvmSaveSocIfNeeded(float32 currentSocPercent);
 
 /*******************************************************************************
 * Variables
@@ -185,6 +206,21 @@ static volatile boolean        s_canRxFlag        = FALSE;
 static volatile Std_ReturnType s_canTxLastResult  = E_OK;
 static volatile uint32         s_canTxFailCnt     = 0U;
 static volatile uint32         s_canTxAttemptCnt  = 0U;
+
+/*******************************************************************************
+* Variables - NVM state tracking
+*******************************************************************************/
+
+/**
+ * @brief   SOC lần cuối đã lưu vào Flash (để tránh ghi liên tục)
+ */
+static volatile float32 s_lastSavedSocPercent = 101.0f;  /* Khởi tạo ngoài range */
+
+/**
+ * @brief   Ngưỡng thay đổi SOC để trigger ghi Flash (%)
+ * @details Tránh mài mòn Flash: chỉ ghi khi SOC thay đổi >= 1%
+ */
+#define BMS_NVM_SAVE_THRESHOLD_PCT  (1.0f)
 
 /*******************************************************************************
 * Code
@@ -362,6 +398,16 @@ void BmsApp_Init(void)
 {
     uint8 i;
 
+    BMS_Nvm_Init();
+
+    /* Seed the Coulomb-counting SOC integrator.
+     * In demo mode (BMS_SOC_DEMO_MODE == STD_ON) the voltage argument is
+     * ignored -- the seed comes from BMS_SOC_INITIAL_PCT in BmsSoc_Cfg.h.
+     * In real-pack mode we would replace 0U with a freshly read voltage. */
+    BmsSoc_Init(0U);
+
+    BmsApp_NvmRestoreSoc();
+
     for (i = 0U; i < BMS_ELEC_DLC; i++) { s_sduElecMeasure[i] = 0U; }
     for (i = 0U; i < BMS_TEMP_DLC; i++) { s_sduTemperature[i] = 0U; }
     for (i = 0U; i < BMS_VOLT_DLC; i++) { s_sduVoltage[i]     = 0U; }
@@ -389,11 +435,8 @@ void BmsApp_Init(void)
     s_canTxFailCnt    = 0U;
     s_canTxAttemptCnt = 0U;
 
-    /* Seed the Coulomb-counting SOC integrator.
-     * In demo mode (BMS_SOC_DEMO_MODE == STD_ON) the voltage argument is
-     * ignored -- the seed comes from BMS_SOC_INITIAL_PCT in BmsSoc_Cfg.h.
-     * In real-pack mode we would replace 0U with a freshly read voltage. */
-    BmsSoc_Init(0U);
+
+
 }
 
 /**
@@ -490,9 +533,16 @@ void BmsApp_Task50ms(void)
  */
 void BmsApp_Task100ms(void)
 {
+	float32 socPercent;
+
     /* SOC is now produced by the Coulomb-counting integrator (BmsSoc_Update
      * fed every 50 ms in Task50ms). Just snapshot the cached raw value. */
     s_lastSocRaw = BmsSoc_GetSocRaw();
+
+    /* Convert raw (0-200) to percent (0-100) for NVM storage */
+    socPercent = (float32)s_lastSocRaw / 2.0f;
+
+    BmsApp_NvmSaveSocIfNeeded(socPercent);
 
     BmsApp_PackSoc(s_lastSocRaw, s_lastCurrRaw);
     BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_SOC,
@@ -558,6 +608,72 @@ void BmsApp_Task500ms(void)
     BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Prediction,
                       BMS_PREDICTION_CAN_ID, BMS_PREDICTION_SW_PDU,
                       BMS_PRED_DLC, s_sduPrediction);
+}
+
+/*============================================================================*/
+/*                            NVM Integration                                 */
+/*============================================================================*/
+
+/**
+ * @brief   Khôi phục SOC từ Flash
+ */
+void BmsApp_NvmRestoreSoc(void)
+{
+    float32 savedSocPercent;
+
+    /* Đọc SOC từ Flash (blocking - OK vì gọi lúc init) */
+    savedSocPercent = BMS_Nvm_ReadSoC();
+
+    /* Kiểm tra dữ liệu hợp lệ (không phải default 100% do lỗi) */
+    if (savedSocPercent >= 0.0f && savedSocPercent <= 100.0f)
+    {
+        /* Gán lại SOC cho integrator */
+        BmsSoc_SetSocPct((uint8)savedSocPercent);
+
+        /* Cập nhật cached value để tránh ghi lại ngay */
+        s_lastSavedSocPercent = savedSocPercent;
+    }
+    else
+    {
+        /* Dữ liệu không hợp lệ, giữ nguyên SOC mặc định (95% từ BmsSoc_Init) */
+        s_lastSavedSocPercent = 101.0f;  /* Force save on first change */
+    }
+}
+
+/**
+ * @brief   Lưu SOC vào Flash nếu cần (thay đổi đủ ngưỡng và đủ thời gian)
+ */
+void BmsApp_NvmSaveSocIfNeeded(float32 currentSocPercent)
+{
+    float32 diff;
+    boolean shouldSave;
+
+    /* Chỉ lưu khi NVM đang IDLE (không có operation nào đang chạy) */
+    if (BMS_Nvm_GetStatus() != NVM_RET_OK)
+    {
+        return;  /* Busy, chờ lần sau */
+    }
+
+    /* Tính độ chênh lệch SOC so với lần lưu cuối */
+    diff = currentSocPercent - s_lastSavedSocPercent;
+    if (diff < 0.0f)
+    {
+        diff = -diff;  /* Giá trị tuyệt đối */
+    }
+
+    /* Kiểm tra điều kiện lưu:
+       1. SOC thay đổi >= ngưỡng (1%)
+    */
+    shouldSave = (diff >= BMS_NVM_SAVE_THRESHOLD_PCT);
+
+    if (shouldSave)
+    {
+        /* Yêu cầu ghi async vào Flash */
+        BMS_Nvm_WriteSoC_Async(currentSocPercent);
+
+        /* Cập nhật state */
+        s_lastSavedSocPercent = currentSocPercent;
+    }
 }
 
 /*******************************************************************************

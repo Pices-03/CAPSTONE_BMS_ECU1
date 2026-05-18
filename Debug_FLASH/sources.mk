@@ -24,6 +24,7 @@ Application/BmsApp/src \
 Application/BmsFault/src \
 Application/BmsScheduler/src \
 Application/BmsSoc/src \
+Application/Bms_Nvm/src \
 CDD/CDD_INA219/src \
 CDD/CDD_STM32Temp/src \
 Project_Settings/Startup_Code \

@@ -30,10 +30,16 @@
 *******************************************************************************/
 #include "Std_Types.h"
 #include "BmsSoc.h"
+#include "Gpt.h"
+#include <math.h>   /* for fabsf if needed */
+#include "Mem_43_INFLS.h"
+#include "BMS_Nvm.h"
 
 /*******************************************************************************
 * Definitions
 *******************************************************************************/
+
+#define TIMER_FREQ_HZ       (8000000U) /* Timer frequency for time calculations (8 MHz) */
 
 /**
  * @brief   Nominal cell voltage (V) -- 1S Li-ion mid-discharge.
@@ -130,6 +136,8 @@
  */
 #define BMS_SOC_OCV_VALID_MIN_MV     (2000U)
 
+#define TIMER_FREQ_HZ       (8000000U) /* Timer frequency for time calculations (8 MHz) */
+
 #endif /* BMS_SOC_DEMO_MODE == STD_OFF */
 
 /*******************************************************************************
@@ -146,6 +154,9 @@ static uint8 BmsSoc_OcvLookup(uint16 volt_mV);
 /*******************************************************************************
 * Variables
 *******************************************************************************/
+
+static uint32 g_timePrev = 0; /* Previous timestamp for delta time calculation (timer ticks) */
+static uint8  g_firstCall = 1;  /* Flag to indicate first call to update (to initialize timePrev) */
 
 /**
  * @brief   Live remaining capacity in NANO-COULOMBS (sint64).
@@ -229,6 +240,48 @@ static const uint16 s_ocvTable[BMS_SOC_OCV_POINTS] =
 /*******************************************************************************
 * Code
 *******************************************************************************/
+
+/*
+* @brief Get elapsed time in seconds since last call, using GPT timer.
+*        Handles timer overflow and initializes on first call.
+* @return Elapsed time in seconds (0.0f on first call).
+*/
+float32 BMS_GetDeltaTime(void)
+{
+   uint32 timeNow;
+   uint32 elapsedTicks;
+   float32 deltaSec = 0.0f;
+
+   /* Get current timer value (ticks) */
+   timeNow = Gpt_GetTimeElapsed(GptConf_GptChannelConfiguration_GptChannelConfiguration_0);
+
+   if (g_firstCall)
+   {
+       /* First call: just store the timestamp, don't calculate delta */
+       g_firstCall = 0;
+       g_timePrev = timeNow;
+   }
+   else
+   {
+       /* Calculate elapsed ticks, handle 32-bit overflow */
+       if (timeNow >= g_timePrev)
+       {
+           elapsedTicks = timeNow - g_timePrev;
+       }
+       else
+       {
+           elapsedTicks = (0xFFFFFFFFU - g_timePrev) + timeNow;
+       }
+
+       /* Convert to seconds */
+       deltaSec = (float32)elapsedTicks / TIMER_FREQ_HZ;
+
+       /* Update timestamp for next iteration */
+       g_timePrev = timeNow;
+   }
+
+   return deltaSec;
+}
 
 /**
  * @brief   Convert percent (0..100) to raw 0.5% LSB encoding (0..200).
@@ -393,6 +446,16 @@ void BmsSoc_Update(float32 curr_mA)
 {
     sint32 curr_uA;
     sint64 delta_nC;
+    float32 deltaTime_sec;
+
+    /* Get elapsed time since last update */
+    deltaTime_sec = BMS_GetDeltaTime();
+
+    /* Safety: deltaTime must be positive */
+    if (deltaTime_sec <= 0.0f)
+    {
+        return;
+    }
 
     /* ────── Single boundary cast: float mA → sint32 µA ──────
      * Sai số tối đa ≈ 1 µA per-tick (rounding của float×1000 + truncation).
@@ -409,7 +472,7 @@ void BmsSoc_Update(float32 curr_mA)
 
     /* ────── Integer-only integration (compiler emit SMULL 32×32→64) ──────
      * Unit: 1 µA × 1 ms = 1 nC exactly, no scaling factor needed. */
-    delta_nC = (sint64)curr_uA * (sint64)BMS_SOC_TICK_MS;
+    delta_nC = (sint64)curr_uA * (sint64)deltaTime_sec * 1000; /* s -> ms */
 
     s_remain_nC -= delta_nC;
 
@@ -462,7 +525,7 @@ float32 BmsSoc_VirtualCurrent_mA(float32 raw_mA)
     float32 v;
 
 #if (BMS_SOC_BIDIR_SIM_ENABLE == STD_ON)
-    v = raw_mA - BMS_SOC_BIDIR_ZERO_POINT_mA;
+    v = (raw_mA > BMS_SOC_BIDIR_ZERO_POINT_mA) ? (raw_mA - BMS_SOC_BIDIR_ZERO_POINT_mA) : -raw_mA;
     if ((v < BMS_SOC_BIDIR_DEAD_mA) && (v > -BMS_SOC_BIDIR_DEAD_mA))
     {
         v = 0.0f;
