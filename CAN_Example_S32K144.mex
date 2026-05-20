@@ -350,11 +350,6 @@
                   <data type="Version">1.0.0</data>
                </feature>
             </dependency>
-            <dependency resourceType="Tool" resourceId="Clocks" description="The Clocks tool is required by the Peripherals tool, but it is disabled." problem_level="2" source="Peripherals">
-               <feature name="enabled" evaluation="equal">
-                  <data>true</data>
-               </feature>
-            </dependency>
          </dependencies>
          <generated_project_files>
             <file path="board/Port_Ci_Port_Ip_Cfg.c" update_enabled="true"/>
@@ -2060,6 +2055,21 @@
                                  <array name="GptChannelEcucPartitionRef"/>
                                  <array name="GptWakeupConfiguration"/>
                               </struct>
+                              <struct name="1">
+                                 <setting name="Name" value="GptChannelConfiguration_1"/>
+                                 <setting name="GptChannelId" value="1"/>
+                                 <setting name="GptHwIp" value="LPIT"/>
+                                 <setting name="GptModuleRef" value="/Gpt/Gpt/GptChannelConfigSet/Lpit_0/LpitChannel_1"/>
+                                 <setting name="GptChannelMode" value="GPT_CH_MODE_CONTINUOUS"/>
+                                 <setting name="GptChannelClkSrcRef" value="/Gpt/Gpt/GptDriverConfiguration/GptClockReferencePoint_0"/>
+                                 <setting name="GptChannelTickValueMax" value="4294967295"/>
+                                 <setting name="GptEnableWakeup" value="false"/>
+                                 <array name="GptNotification">
+                                    <setting name="0" value="NULL_PTR"/>
+                                 </array>
+                                 <array name="GptChannelEcucPartitionRef"/>
+                                 <array name="GptWakeupConfiguration"/>
+                              </struct>
                            </array>
                            <array name="GptLpit">
                               <struct name="0">
@@ -2071,6 +2081,16 @@
                                     <struct name="0">
                                        <setting name="Name" value="LpitChannel_0"/>
                                        <setting name="GptLpitChannel" value="CH_0"/>
+                                       <setting name="ChainMode" value="false"/>
+                                       <setting name="LPitExternalTrigger" value="false"/>
+                                       <setting name="LPitReloadOnTrigger" value="false"/>
+                                       <setting name="LPitStopOnInterrupt" value="false"/>
+                                       <setting name="LPitStartOnTrigger" value="false"/>
+                                       <array name="LPitTriggerChannels"/>
+                                    </struct>
+                                    <struct name="1">
+                                       <setting name="Name" value="LpitChannel_1"/>
+                                       <setting name="GptLpitChannel" value="CH_1"/>
                                        <setting name="ChainMode" value="false"/>
                                        <setting name="LPitExternalTrigger" value="false"/>
                                        <setting name="LPitReloadOnTrigger" value="false"/>
@@ -2095,8 +2115,8 @@
                            <struct name="1">
                               <setting name="Name" value="GptHwConfiguration_1"/>
                               <setting name="GptIsrHwId" value="LPIT_0_CH_1"/>
-                              <setting name="GptIsrEnable" value="false"/>
-                              <setting name="GptChannelIsUsed" value="false"/>
+                              <setting name="GptIsrEnable" value="true"/>
+                              <setting name="GptChannelIsUsed" value="true"/>
                            </struct>
                            <struct name="2">
                               <setting name="Name" value="GptHwConfiguration_2"/>

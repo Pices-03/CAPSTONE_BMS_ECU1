@@ -18,14 +18,23 @@
 /*******************************************************************************
 * Includes
 *******************************************************************************/
+//#include "Std_Types.h"
+//#include "BmsApp.h"
+//#include "BmsFault.h"
+//#include "BmsSoc_Cfg.h"
+//#include "CDD_INA219.h"
+//#include "CDD_STM32Temp.h"
+//#include "BMS_Nvm.h"
+//#include "BMS_SoC.h"
+
 #include "Std_Types.h"
 #include "BmsApp.h"
 #include "BmsFault.h"
-#include "BmsSoc.h"
 #include "BmsSoc_Cfg.h"
 #include "CDD_INA219.h"
 #include "CDD_STM32Temp.h"
 #include "BMS_Nvm.h"
+#include "BMS_SoC.h"
 
 /*******************************************************************************
 * Definitions
@@ -52,6 +61,7 @@
 
 #define BMS_PREDICTION_CAN_ID        (0x400U)
 #define BMS_PREDICTION_SW_PDU        (5U)
+#define BMS_PRED_DLC                 (6U)
 
 /**
  * @brief   Voltage scaling: Volts -> 0.001 V LSB (CAN 0x100 / 0x210).
@@ -92,6 +102,8 @@
 #define BMS_STATE_ENTER_CHG_RAW      (-70)   /* −7.0 mA → vào CHARGING */
 #define BMS_STATE_EXIT_CHG_RAW       (-30)   /* >−3.0 mA → về IDLE */
 
+#define BMS_SOC_METHOD_COULOMB       (0x01U)  /* Coulomb counting method */
+
 /*******************************************************************************
 * Prototypes
 *******************************************************************************/
@@ -104,15 +116,7 @@ static void BmsApp_TxBmsFrame(Can_HwHandleType hoh, uint32 canId, PduIdType swPd
                               uint8 dlc, uint8 *pSdu);
 static void BmsApp_HandleHmiCommand(const uint8 *pData);
 
-/**
- * @brief   Khởi tạo NVM và khôi phục SOC từ Flash (nếu có)
- * @details Gọi từ BmsApp_Init() để đọc SOC đã lưu từ lần trước.
- *          Nếu đọc thành công, sẽ gán lại SOC cho integrator.
- *
- * @param   void
- * @return  void
- */
-static void BmsApp_NvmRestoreSoc(void);
+static float32 BmsSoc_VirtualCurrent_mA(float32 raw_mA);
 
 /**
  * @brief   Kiểm tra và lưu SOC vào Flash nếu thay đổi đủ ngưỡng.
@@ -167,6 +171,9 @@ static volatile uint16  s_lastVoltMv   = 0U;
 static volatile sint16  s_lastCurrRaw  = 0;
 static volatile uint8   s_lastSocRaw   = 0U;
 static volatile uint8   s_lastTempRaw  = 0U;
+
+static volatile float32 g_current;
+
 
 /**
  * @brief   Last-known driver return codes (visible in debugger).
@@ -366,7 +373,7 @@ static void BmsApp_HandleHmiCommand(const uint8 *pData)
                 /* pData[1] carries the target SOC in PERCENT (0..100).
                  * Re-seed the integrator -- the SDU will be re-populated on
                  * the next Task100ms tick from the freshly cached raw value. */
-                BmsSoc_SetSocPct(pData[1U]);
+            	BMS_SoC_Init((float32)pData[1U]);
                 break;
 
             case BMS_HMI_CMD_SNAPSHOT:
@@ -394,171 +401,309 @@ static void BmsApp_HandleHmiCommand(const uint8 *pData)
 /**
  * @brief   See BmsApp.h.
  */
-void BmsApp_Init(void)
+Std_ReturnType BmsApp_Init(void)
 {
+	Std_ReturnType status = E_OK;
     uint8 i;
+    volatile float32 current_soc_val;
 
     BMS_Nvm_Init();
 
+    current_soc_val = BMS_Nvm_ReadSoC();
+
+    status = BMS_SoC_Init(current_soc_val);
+
+    if (status == E_NOT_OK)
+    {
+    	for (i = 0U; i < BMS_ELEC_DLC; i++)
+    	{
+    	 	s_sduElecMeasure[i] = 0U;
+    	}
+    	for (i = 0U; i < BMS_TEMP_DLC; i++) { s_sduTemperature[i] = 0U; }
+    	for (i = 0U; i < BMS_VOLT_DLC; i++) { s_sduVoltage[i]     = 0U; }
+    	for (i = 0U; i < BMS_SOC_DLC;  i++) { s_sduSoc[i]         = 0U; }
+    	for (i = 0U; i < BMS_PRED_DLC; i++) { s_sduPrediction[i]  = 0U; }
+
+    	s_lastVoltV    = 0.0f;
+    	s_lastCurrMa   = 0.0f;
+    	s_lastPowMw    = 0.0f;
+    	s_lastTempC    = 0.0f;
+    	s_lastVoltMv   = 0U;
+    	s_lastCurrRaw  = 0;
+    	s_lastSocRaw   = 0U;
+    	s_lastTempRaw  = 0U;
+ 	    s_lastInaStatusV = 0U;
+  	    s_lastInaStatusI = 0U;
+   	    s_lastInaStatusP = 0U;
+   	    s_lastTempStatus = 0U;
+
+   	    s_canTxConfirmCnt = 0U;
+   	    s_canTxFlag       = FALSE;
+   	    s_canRxFlag       = FALSE;
+   	    s_canTxLastResult = E_OK;
+   	    s_canTxFailCnt    = 0U;
+   	    s_canTxAttemptCnt = 0U;
+    }
     /* Seed the Coulomb-counting SOC integrator.
      * In demo mode (BMS_SOC_DEMO_MODE == STD_ON) the voltage argument is
      * ignored -- the seed comes from BMS_SOC_INITIAL_PCT in BmsSoc_Cfg.h.
      * In real-pack mode we would replace 0U with a freshly read voltage. */
-    BmsSoc_Init(0U);
+    //BmsSoc_Init(0U);
 
-    BmsApp_NvmRestoreSoc();
+    //BmsApp_NvmRestoreSoc();
 
-    for (i = 0U; i < BMS_ELEC_DLC; i++) { s_sduElecMeasure[i] = 0U; }
-    for (i = 0U; i < BMS_TEMP_DLC; i++) { s_sduTemperature[i] = 0U; }
-    for (i = 0U; i < BMS_VOLT_DLC; i++) { s_sduVoltage[i]     = 0U; }
-    for (i = 0U; i < BMS_SOC_DLC;  i++) { s_sduSoc[i]         = 0U; }
-    for (i = 0U; i < BMS_PRED_DLC; i++) { s_sduPrediction[i]  = 0U; }
-
-    s_lastVoltV    = 0.0f;
-    s_lastCurrMa   = 0.0f;
-    s_lastPowMw    = 0.0f;
-    s_lastTempC    = 0.0f;
-    s_lastVoltMv   = 0U;
-    s_lastCurrRaw  = 0;
-    s_lastSocRaw   = 0U;
-    s_lastTempRaw  = 0U;
-
-    s_lastInaStatusV = 0U;
-    s_lastInaStatusI = 0U;
-    s_lastInaStatusP = 0U;
-    s_lastTempStatus = 0U;
-
-    s_canTxConfirmCnt = 0U;
-    s_canTxFlag       = FALSE;
-    s_canRxFlag       = FALSE;
-    s_canTxLastResult = E_OK;
-    s_canTxFailCnt    = 0U;
-    s_canTxAttemptCnt = 0U;
-
-
-
+    return status;
 }
 
 /**
  * @brief   See BmsApp.h.
  */
-void BmsApp_Task50ms(void)
+
+Std_ReturnType BmsApp_Task50ms(void)
 {
-    INA219_ReturnType retV;
-    INA219_ReturnType retI;
-    INA219_ReturnType retP;
-    uint16            pow_raw;
+    Std_ReturnType retV, retI, retP;
+    float32 volt_mV, curr_mA, power_W;
+    float32 virt_curr_mA;
+    float32 virt_pow_mW;
+    sint32  curr_raw_s32;
+    sint32  pow_raw_s32;
+    uint16  pow_raw;
+    uint16  volt_mV_int;
+    Std_ReturnType status = E_OK;
 
-    pow_raw = 0U;
+    volt_mV   = 0.0f;
+    curr_mA   = 0.0f;
+    power_W   = 0.0f;
+    pow_raw   = 0U;
+    virt_curr_mA = 0.0f;
+    virt_pow_mW  = 0.0f;
 
-    /* Sensor đã tự scale raw → engineering units (float). Không cần
-     * thêm tầng integer API ở CDD -- BmsSoc_Update sẽ tự cast 1 lần ở
-     * biên rồi tích phân integer trong nội bộ. */
-    retV = CDD_INA219_ReadBusVoltage_V(&s_lastVoltV);
-    retI = CDD_INA219_ReadCurrent_mA(&s_lastCurrMa);
-    retP = CDD_INA219_ReadPower_mW(&s_lastPowMw);
+    // for test
+    CDD_INA219_ReadCurrent_mA(&g_current);
 
-    /* Cache statuses so the debugger can see why a frame did/didn't go out. */
+    /* Đọc INA219 */
+    retV = CDD_INA219_ReadBusVoltage_mV(&volt_mV);
+    retI = CDD_INA219_ReadCurrent_mA(&curr_mA);
+    retP = CDD_INA219_ReadPower(&power_W);
+
+    /* Cache debug variables */
     s_lastInaStatusV = (uint8)retV;
     s_lastInaStatusI = (uint8)retI;
     s_lastInaStatusP = (uint8)retP;
+    s_lastVoltV = volt_mV / 1000.0f;      /* mV → V */
+    s_lastCurrMa = curr_mA;
+    s_lastPowMw = power_W * 1000.0f;       /* W → mW */
 
-    if ((retV == INA219_OK) && (retI == INA219_OK) && (retP == INA219_OK))
+    if ((retV == E_OK) && (retI == E_OK) && (retP == E_OK))
     {
-        float32 virt_curr_mA;
-        float32 virt_pow_mW;
-        sint32  curr_raw_s32;
-        sint32  pow_raw_s32;
-
-        /* Read OK -- clear any previously-latched INA comm error so the
-         * HMI banner auto-clears as soon as the bus recovers. */
+        /* Clear INA219 communication fault */
         BmsFault_SetCommError(BMS_FAULT_SRC_INA_COMM, FALSE, 0U);
 
-        /* ────── Unidir → bidir virtual mapping (demo biến trở) ──────
-         * Raw current INA219 luôn dương; map qua zero-point để có
-         * khái niệm sạc/xả ảo. Khi BMS_SOC_BIDIR_SIM_ENABLE = STD_OFF
-         * (gắn pin thật), helper trả về raw passthrough. */
-        virt_curr_mA = BmsSoc_VirtualCurrent_mA(s_lastCurrMa);
+        /* ────── Virtual current mapping ──────
+         * BMS_SoC_MapCurrent trả về giá trị signed (A), chuyển về mA
+         */
+        virt_curr_mA = BmsSoc_VirtualCurrent_mA(curr_mA);
 
-        /* Virtual power = virtual_I × V (signed): dương = xả, âm = sạc.
-         * Dùng |virtual_pow| cho averaging prediction. */
-        virt_pow_mW  = virt_curr_mA * s_lastVoltV;
+        /* Virtual power = virtual_I × V (signed) */
+        virt_pow_mW = virt_curr_mA * (volt_mV / 1000.0f);
 
-        /* CAN encoding cho 0x100 -- defensive saturation, dùng VIRTUAL
-         * values để HMI thấy chiều sạc/xả đúng cho demo:
-         *   volt: 0.001 V/LSB → s_lastVoltMv = V × 1000 (uint16).
-         *   curr: 0.1 mA/LSB  → virtual mA × 10 (sint16 range).
-         *   pow : 0.1 mW/LSB  → |virtual mW| × 10 (uint16 range). */
-        s_lastVoltMv  = (uint16)(s_lastVoltV * BMS_V_TO_MV_SCALE);
+        /* CAN encoding cho 0x100 */
+        volt_mV_int = (uint16)volt_mV;
+        s_lastVoltMv = volt_mV_int;
 
         curr_raw_s32 = (sint32)(virt_curr_mA * BMS_MA_TO_RAW_SCALE);
-        if (curr_raw_s32 >  32767) { curr_raw_s32 =  32767; }
+        if (curr_raw_s32 > 32767) { curr_raw_s32 = 32767; }
         if (curr_raw_s32 < -32768) { curr_raw_s32 = -32768; }
         s_lastCurrRaw = (sint16)curr_raw_s32;
 
-        pow_raw_s32 = (sint32)((virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW)
-                                * BMS_MW_TO_RAW_SCALE);
+        pow_raw_s32 = (sint32)((virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW) * BMS_MW_TO_RAW_SCALE);
         if (pow_raw_s32 > 65535) { pow_raw_s32 = 65535; }
-        if (pow_raw_s32 < 0)     { pow_raw_s32 = 0;     }
+        if (pow_raw_s32 < 0) { pow_raw_s32 = 0; }
         pow_raw = (uint16)pow_raw_s32;
 
-        /* Update debug mirror để S32DS Expressions hiển thị giá trị ảo */
-        s_lastCurrMa = virt_curr_mA;   /* shadow original raw with virtual */
-        s_lastPowMw  = virt_pow_mW;
+        /* Update debug mirror */
+        s_lastCurrMa = virt_curr_mA;
+        s_lastPowMw = virt_pow_mW;
 
-        /* Feed integrator với VIRTUAL current — SoC tăng/giảm theo demo */
-        BmsSoc_Update(virt_curr_mA);
+        /* Update SOC integrator using BMS_SoC_Update (dùng current raw, hàm sẽ tự map) */
+        BMS_SoC_Update(curr_mA);
 
-        /* Feed 1-minute power moving-average với |VIRTUAL power| (magnitude)
-         * — divisor cho TTE/TTF luôn dương. */
-        BmsSoc_AccumulatePower(virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW);
-
-        BmsApp_PackElecMeasure(s_lastVoltMv, s_lastCurrRaw, pow_raw);
+        /* Pack and send CAN 0x100 */
+        BmsApp_PackElecMeasure(volt_mV, s_lastCurrRaw, pow_raw);
         BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_ElecMeasure,
                           BMS_ELEC_CAN_ID, BMS_ELEC_SW_PDU,
                           BMS_ELEC_DLC, s_sduElecMeasure);
 
+        /* Check electrical faults */
         BmsFault_CheckElec(s_lastVoltMv, s_lastCurrRaw);
     }
     else
     {
-        /* INA219 I2C error -- raise dedicated comm fault (HMI will NOT
-         * misinterpret as overtemperature). */
+        status = E_NOT_OK;
         BmsFault_SetCommError(BMS_FAULT_SRC_INA_COMM, TRUE, (uint8)retV);
     }
+
+    return status;
 }
+//void BmsApp_Task50ms(void)
+//{
+//    INA219_ReturnType retV;
+//    INA219_ReturnType retI;
+//    INA219_ReturnType retP;
+//    uint16            pow_raw;
+//
+//    pow_raw = 0U;
+//
+//    /* Sensor đã tự scale raw → engineering units (float). Không cần
+//     * thêm tầng integer API ở CDD -- BmsSoc_Update sẽ tự cast 1 lần ở
+//     * biên rồi tích phân integer trong nội bộ. */
+//    retV = CDD_INA219_ReadBusVoltage_mV(&s_lastVoltV); // v -> mV
+//    retI = CDD_INA219_ReadCurrent_mA(&s_lastCurrMa);
+//    retP = CDD_INA219_ReadPower(&s_lastPowMw); // mW->CDD_INA219_ReadPower
+//
+//    /* Cache statuses so the debugger can see why a frame did/didn't go out. */
+//    s_lastInaStatusV = (uint8)retV;
+//    s_lastInaStatusI = (uint8)retI;
+//    s_lastInaStatusP = (uint8)retP;
+//
+//    if ((retV == INA219_OK) && (retI == INA219_OK) && (retP == INA219_OK))
+//    {
+//        float32 virt_curr_mA;
+//        float32 virt_pow_mW;
+//        sint32  curr_raw_s32;
+//        sint32  pow_raw_s32;
+//
+//        /* Read OK -- clear any previously-latched INA comm error so the
+//         * HMI banner auto-clears as soon as the bus recovers. */
+//        BmsFault_SetCommError(BMS_FAULT_SRC_INA_COMM, FALSE, 0U);
+//
+//        /* ────── Unidir → bidir virtual mapping (demo biến trở) ──────
+//         * Raw current INA219 luôn dương; map qua zero-point để có
+//         * khái niệm sạc/xả ảo. Khi BMS_SOC_BIDIR_SIM_ENABLE = STD_OFF
+//         * (gắn pin thật), helper trả về raw passthrough. */
+//        virt_curr_mA = BmsSoc_VirtualCurrent_mA(s_lastCurrMa);
+//
+//        /* Virtual power = virtual_I × V (signed): dương = xả, âm = sạc.
+//         * Dùng |virtual_pow| cho averaging prediction. */
+//        //virt_pow_mW  = virt_curr_mA * s_lastVoltV;
+//
+//        /* CAN encoding cho 0x100 -- defensive saturation, dùng VIRTUAL
+//         * values để HMI thấy chiều sạc/xả đúng cho demo:
+//         *   volt: 0.001 V/LSB → s_lastVoltMv = V × 1000 (uint16).
+//         *   curr: 0.1 mA/LSB  → virtual mA × 10 (sint16 range).
+//         *   pow : 0.1 mW/LSB  → |virtual mW| × 10 (uint16 range). */
+//        s_lastVoltMv  = (uint16)(s_lastVoltV * BMS_V_TO_MV_SCALE);
+//
+//    // cmt for test
+////        curr_raw_s32 = (sint32)(virt_curr_mA * BMS_MA_TO_RAW_SCALE);
+////        if (curr_raw_s32 >  32767) { curr_raw_s32 =  32767; }
+////        if (curr_raw_s32 < -32768) { curr_raw_s32 = -32768; }
+////        s_lastCurrRaw = (sint16)curr_raw_s32;
+////
+////        pow_raw_s32 = (sint32)((virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW)
+////                                * BMS_MW_TO_RAW_SCALE);
+////        if (pow_raw_s32 > 65535) { pow_raw_s32 = 65535; }
+////        if (pow_raw_s32 < 0)     { pow_raw_s32 = 0;     }
+////        pow_raw = (uint16)pow_raw_s32;
+////
+////        /* Update debug mirror để S32DS Expressions hiển thị giá trị ảo */
+//        s_lastCurrMa = virt_curr_mA;   /* shadow original raw with virtual */
+////        s_lastPowMw  = virt_pow_mW;
+//
+//        /* Feed integrator với VIRTUAL current — SoC tăng/giảm theo demo */
+//        BmsSoc_Update(virt_curr_mA);
+//        //BmsSoc_Update(s_lastCurrMa);
+//
+//        /* Feed 1-minute power moving-average với |VIRTUAL power| (magnitude)
+//         * — divisor cho TTE/TTF luôn dương. */
+//        BmsSoc_AccumulatePower(virt_pow_mW >= 0.0f ? virt_pow_mW : -virt_pow_mW);
+//
+//        BmsApp_PackElecMeasure(s_lastVoltMv, s_lastCurrRaw, pow_raw);
+//        BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_ElecMeasure,
+//                          BMS_ELEC_CAN_ID, BMS_ELEC_SW_PDU,
+//                          BMS_ELEC_DLC, s_sduElecMeasure);
+//
+//        BmsFault_CheckElec(s_lastVoltMv, s_lastCurrRaw);
+//    }
+//    else
+//    {
+//        /* INA219 I2C error -- raise dedicated comm fault (HMI will NOT
+//         * misinterpret as overtemperature). */
+//        BmsFault_SetCommError(BMS_FAULT_SRC_INA_COMM, TRUE, (uint8)retV);
+//    }
+//}
 
 /**
  * @brief   See BmsApp.h.
  */
-void BmsApp_Task100ms(void)
+
+Std_ReturnType BmsApp_Task100ms(void)
 {
-	float32 socPercent;
+    float32 socPercent;
+    uint8 soc_percent;
+    uint8 soc_raw;          /* Thêm biến raw (0-200) cho CAN */
+    Std_ReturnType status = E_OK;
 
-    /* SOC is now produced by the Coulomb-counting integrator (BmsSoc_Update
-     * fed every 50 ms in Task50ms). Just snapshot the cached raw value. */
-    s_lastSocRaw = BmsSoc_GetSocRaw();
+    /* Lấy SOC từ BMS_SoC (trả về 0-100%) */
+    soc_percent = BMS_SoC_Get();
+    s_lastSocRaw = soc_percent;  /* Lưu lại dạng percent cho debug */
+    socPercent = (float32)soc_percent;
 
-    /* Convert raw (0-200) to percent (0-100) for NVM storage */
-    socPercent = (float32)s_lastSocRaw / 2.0f;
+    /* Chuyển đổi từ percent (0-100) sang raw (0-200) cho CAN 0x300 byte 0 */
+    /* Công thức: soc_raw = soc_percent × 2 */
+    soc_raw = soc_percent * 2U;
 
+    /* Giới hạn an toàn (phòng trường hợp lỗi) */
+    if (soc_raw > 200U)
+    {
+        soc_raw = 200U;
+    }
+
+    /* Lưu SOC vào Flash nếu cần (vẫn dùng percent) */
     BmsApp_NvmSaveSocIfNeeded(socPercent);
 
-    BmsApp_PackSoc(s_lastSocRaw, s_lastCurrRaw);
+    /* Pack và gửi CAN 0x300 (SOC) - dùng soc_raw (0-200) */
+    BmsApp_PackSoc(soc_raw, s_lastCurrRaw);  /* ← sửa thành soc_raw */
     BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_SOC,
                       BMS_SOC_CAN_ID, BMS_SOC_SW_PDU,
                       BMS_SOC_DLC, s_sduSoc);
 
+    /* Pack và gửi CAN 0x210 (Voltage) - không thay đổi */
     BmsApp_PackVoltage(s_lastVoltMv);
     BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Voltage,
                       BMS_VOLT_CAN_ID, BMS_VOLT_SW_PDU,
                       BMS_VOLT_DLC, s_sduVoltage);
+
+    return status;
 }
+//void BmsApp_Task100ms(void)
+//{
+//	float32 socPercent;
+//
+//    /* SOC is now produced by the Coulomb-counting integrator (BmsSoc_Update
+//     * fed every 50 ms in Task50ms). Just snapshot the cached raw value. */
+//    s_lastSocRaw = BmsSoc_GetSocRaw();
+//
+//    /* Convert raw (0-200) to percent (0-100) for NVM storage */
+//    socPercent = (float32)s_lastSocRaw / 2.0f;
+//
+//    BmsApp_NvmSaveSocIfNeeded(socPercent);
+//
+//    BmsApp_PackSoc(s_lastSocRaw, s_lastCurrRaw);
+//    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_SOC,
+//                      BMS_SOC_CAN_ID, BMS_SOC_SW_PDU,
+//                      BMS_SOC_DLC, s_sduSoc);
+//
+//    BmsApp_PackVoltage(s_lastVoltMv);
+//    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Voltage,
+//                      BMS_VOLT_CAN_ID, BMS_VOLT_SW_PDU,
+//                      BMS_VOLT_DLC, s_sduVoltage);
+//}
 
 /**
  * @brief   See BmsApp.h.
  */
-void BmsApp_Task200ms(void)
+Std_ReturnType BmsApp_Task200ms(void)
 {
     STM32_Temp_ReturnType retT;
     float32               temp_C;
@@ -596,49 +741,104 @@ void BmsApp_Task200ms(void)
     BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Temperature,
                       BMS_TEMP_CAN_ID, BMS_TEMP_SW_PDU,
                       BMS_TEMP_DLC, s_sduTemperature);
+
+    return (retT == STM32_TEMP_OK) ? E_OK : E_NOT_OK;
 }
 
 /**
  * @brief   See BmsApp.h.
  */
-void BmsApp_Task500ms(void)
+Std_ReturnType BmsApp_Task500ms(void)
 {
-    BmsSoc_PredictionPack(s_lastVoltV, s_lastCurrMa, s_lastPowMw,
-                          s_lastSocRaw, s_sduPrediction);
+    float32 remainingHours;
+    uint8 soc_percent;
+    uint16 tte_min;
+    uint16 ttf_min;
+    uint8 valid_flags;
+    float32 curr_mA;
+    Std_ReturnType status = E_OK;
+
+    CDD_INA219_ReadCurrent_mA(&curr_mA);
+
+    /* Lấy SOC hiện tại */
+    soc_percent = BMS_SoC_Get();
+
+    /* Lấy thời gian còn lại (giờ) từ BMS_SoC */
+    remainingHours = BMS_SoC_GetRemainingHours(curr_mA);
+
+    /* Khởi tạo mặc định */
+    tte_min = 0xFFFFU;
+    ttf_min = 0xFFFFU;
+    valid_flags = 0x00U;
+
+    /* Kiểm tra ý nghĩa của remainingHours */
+    if (remainingHours >= 1e5f)  /* Dòng = 0 hoặc rất nhỏ → không xác định */
+    {
+        tte_min = 0xFFFFU;
+        ttf_min = 0xFFFFU;
+        valid_flags = 0x00U;
+    }
+    else if (remainingHours < 0.0f)  /* Không còn dung lượng (chỉ xảy ra khi pin hết và vẫn xả) */
+    {
+        tte_min = 0xFFFFU;
+        ttf_min = 0xFFFFU;
+        valid_flags = 0x00U;
+    }
+    else
+    {
+        /* remainingHours luôn DƯƠNG - đó là TTE hoặc TTF */
+        /* Cần phân biệt đang xả hay sạc để gán vào đúng field */
+        float32 mappedCurrent_A = BMS_SoC_MapCurrent(curr_mA);
+
+        if (mappedCurrent_A > 0.0f)  /* Đang xả */
+        {
+            tte_min = (uint16)(remainingHours * 60.0f);  /* giờ → phút */
+            if (tte_min > 65534U)
+            {
+            	tte_min = 65534U;
+            }
+            valid_flags = 0x01U;  /* TTE valid */
+        }
+        else if (mappedCurrent_A < 0.0f)  /* Đang sạc */
+        {
+            ttf_min = (uint16)(remainingHours * 60.0f);  /* giờ → phút */
+            if (ttf_min > 65534U)
+            {
+            	ttf_min = 65534U;
+            }
+            valid_flags = 0x02U;  /* TTF valid */
+        }
+        /* mappedCurrent_A == 0 đã được xử lý ở trên */
+    }
+
+    /* Đóng gói CAN 0x400 (6 bytes) */
+    s_sduPrediction[0U] = (uint8)(tte_min >> 8U);
+    s_sduPrediction[1U] = (uint8)(tte_min & 0xFFU);
+    s_sduPrediction[2U] = (uint8)(ttf_min >> 8U);
+    s_sduPrediction[3U] = (uint8)(ttf_min & 0xFFU);
+    s_sduPrediction[4U] = soc_percent;
+    s_sduPrediction[5U] = valid_flags;
+
     BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Prediction,
                       BMS_PREDICTION_CAN_ID, BMS_PREDICTION_SW_PDU,
                       BMS_PRED_DLC, s_sduPrediction);
+
+    return status;
 }
+//void BmsApp_Task500ms(void)
+//{
+//    //BmsSoc_PredictionPack(s_lastVoltV, s_lastCurrMa, s_lastPowMw,
+//      //                    s_lastSocRaw, s_sduPrediction);
+//	BmsSoc_PredictionPack(s_lastCurrMa, s_lastSocRaw, s_sduPrediction);
+//    BmsApp_TxBmsFrame(Can_43_FLEXCANConf_CanHardwareObject_HOH_Tx_Prediction,
+//                      BMS_PREDICTION_CAN_ID, BMS_PREDICTION_SW_PDU,
+//                      BMS_PRED_DLC, s_sduPrediction);
+//}
 
 /*============================================================================*/
 /*                            NVM Integration                                 */
 /*============================================================================*/
 
-/**
- * @brief   Khôi phục SOC từ Flash
- */
-void BmsApp_NvmRestoreSoc(void)
-{
-    float32 savedSocPercent;
-
-    /* Đọc SOC từ Flash (blocking - OK vì gọi lúc init) */
-    savedSocPercent = BMS_Nvm_ReadSoC();
-
-    /* Kiểm tra dữ liệu hợp lệ (không phải default 100% do lỗi) */
-    if (savedSocPercent >= 0.0f && savedSocPercent <= 100.0f)
-    {
-        /* Gán lại SOC cho integrator */
-        BmsSoc_SetSocPct((uint8)savedSocPercent);
-
-        /* Cập nhật cached value để tránh ghi lại ngay */
-        s_lastSavedSocPercent = savedSocPercent;
-    }
-    else
-    {
-        /* Dữ liệu không hợp lệ, giữ nguyên SOC mặc định (95% từ BmsSoc_Init) */
-        s_lastSavedSocPercent = 101.0f;  /* Force save on first change */
-    }
-}
 
 /**
  * @brief   Lưu SOC vào Flash nếu cần (thay đổi đủ ngưỡng và đủ thời gian)
@@ -674,6 +874,24 @@ void BmsApp_NvmSaveSocIfNeeded(float32 currentSocPercent)
         /* Cập nhật state */
         s_lastSavedSocPercent = currentSocPercent;
     }
+}
+
+float32 BmsSoc_VirtualCurrent_mA(float32 raw_mA)
+{
+    float32 v;
+
+#if (BMS_SOC_BIDIR_SIM_ENABLE == STD_ON)
+    v = (raw_mA > BMS_SOC_BIDIR_ZERO_POINT_mA) ? (raw_mA - BMS_SOC_BIDIR_ZERO_POINT_mA) : -raw_mA;
+    if ((v < BMS_SOC_BIDIR_DEAD_mA) && (v > -BMS_SOC_BIDIR_DEAD_mA))
+    {
+        v = 0.0f;
+    }
+#else
+    /* Real-pack mode: INA219 đã trả signed bidirectional, không map */
+    v = raw_mA;
+#endif
+
+    return v;
 }
 
 /*******************************************************************************

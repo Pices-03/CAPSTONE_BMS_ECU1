@@ -180,7 +180,7 @@ extern "C"{
 /** 
  * @brief   GPT channels IP related configuration array
  */
-const Gpt_Ipw_HwChannelConfigType Gpt_Ipw_ChannelConfig_PB[1U] =
+const Gpt_Ipw_HwChannelConfigType Gpt_Ipw_ChannelConfig_PB[2U] =
 {
 
     {
@@ -196,6 +196,21 @@ const Gpt_Ipw_HwChannelConfigType Gpt_Ipw_ChannelConfig_PB[1U] =
             NULL_PTR,
             NULL_PTR,
             &LPIT_0_ChannelConfig_PB[0U]
+        }
+    },
+    {
+        /** @brief IP type  */
+        GPT_LPIT_MODULE,
+        /** @brief IP instance */
+        0U,
+        /**@brief IP channel */
+        1U,
+        /** @brief IP channel pointer */
+        {
+            NULL_PTR,
+            NULL_PTR,
+            NULL_PTR,
+            &LPIT_0_ChannelConfig_PB[1U]
         }
     }
 };

@@ -80,16 +80,14 @@ Application/BmsApp/src/BmsApp.o: ../Application/BmsApp/src/BmsApp.c \
  ../RTD/include/Can_Flexcan_Types.h \
  D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Can_GeneralTypes.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsFault/include/BmsFault.h \
- D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BmsSoc.h \
- D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BmsSoc_Cfg.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BmsSoc_Cfg.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219.h \
- D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Types.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Cfg.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp_Types.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp_Cfg.h \
- D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/Bms_Nvm/inc/BMS_Nvm.h
+ D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/Bms_Nvm/inc/BMS_Nvm.h \
+ D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BMS_SoC.h
 D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Std_Types.h:
 D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Platform_Types.h:
 D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Compiler.h:
@@ -172,13 +170,11 @@ D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40
 ../RTD/include/Can_Flexcan_Types.h:
 D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Can_GeneralTypes.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsFault/include/BmsFault.h:
-D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BmsSoc.h:
-D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BmsSoc_Cfg.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BmsSoc_Cfg.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219.h:
-D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Types.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Cfg.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp_Types.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp_Cfg.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/Bms_Nvm/inc/BMS_Nvm.h:
+D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Application/BmsSoc/include/BMS_SoC.h:

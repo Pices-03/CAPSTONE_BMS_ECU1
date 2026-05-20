@@ -21,7 +21,7 @@
 #include "Gpt_Cfg.h"
 #include "Can_43_FLEXCAN.h"
 #include "SchM_Can_43_FLEXCAN.h"     /* declares Can_43_FLEXCAN_MainFunction_Write/Read */
-
+#include "BMS_Nvm.h"
 /*******************************************************************************
 * Definitions
 *******************************************************************************/
@@ -115,6 +115,8 @@ void BmsScheduler_Init(void)
 #endif
 
     Gpt_StartTimer(BMS_SCHED_GPT_CHANNEL, BMS_SCHED_GPT_TICKS);
+	Gpt_StartTimer(GptConf_GptChannelConfiguration_GptChannelConfiguration_1, 0xFFFFFFFFU);
+
 }
 
 /**
@@ -122,6 +124,7 @@ void BmsScheduler_Init(void)
  */
 void BmsScheduler_Run(void)
 {
+	BMS_Nvm_MainFunction();
     /* Debug counter -- proves the super-loop reaches Run(). */
     s_runCallCnt++;
 

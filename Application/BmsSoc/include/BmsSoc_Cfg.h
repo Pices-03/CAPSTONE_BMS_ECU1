@@ -90,7 +90,7 @@ extern "C" {
  *
  *          Có thể chỉnh runtime qua HMI cmd nếu sau này wire vào.
  */
-#define BMS_SOC_BIDIR_ZERO_POINT_mA  (50.0f)
+#define BMS_SOC_BIDIR_ZERO_POINT_mA  (90.0f)
 
 /**
  * @brief   Dead-zone quanh zero point (mA) — để tránh flicker chg/dchg.

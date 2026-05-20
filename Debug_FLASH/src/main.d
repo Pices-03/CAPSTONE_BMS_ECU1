@@ -148,7 +148,6 @@ src/main.o: ../src/main.c ../RTD/include/Mcu.h \
  ../RTD/include/SchM_Can_43_FLEXCAN.h \
  D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Rte_MemMap.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219.h \
- D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Types.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Cfg.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp.h \
  D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp_Types.h \
@@ -319,7 +318,6 @@ D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40
 ../RTD/include/SchM_Can_43_FLEXCAN.h:
 D\:/Tools/S32DS.3.6.3/S32DS/software/PlatformSDK_S32K1_S32M24/RTD/BaseNXP_TS_T40D2M30I0R0/include/Rte_MemMap.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219.h:
-D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Types.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_INA219/include/CDD_INA219_Cfg.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp.h:
 D\:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/CDD/CDD_STM32Temp/include/CDD_STM32Temp_Types.h:
