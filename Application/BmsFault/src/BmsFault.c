@@ -44,18 +44,35 @@
 #define BMS_FAULT_OC_THRESH_RAW      ((sint16)(BMS_FAULT_OC_THRESH_MA * 10))
 
 /**
- * @brief   Number of latch entries (OV, OC, OT, INA_COMM, STM_COMM).
+ * @brief   Number of latch entries (OV, OC, OT, INA_COMM, STM_COMM, UV).
  */
-#define BMS_FAULT_NUM_ENTRIES        (5U)
+#define BMS_FAULT_NUM_ENTRIES        (6U)
 
 /**
- * @brief   Latch indices -- match (BMS_FAULT_SRC_xxx - 1).
+ * @brief   Latch indices. Priority order = array index order (lower wins).
+ *          UV ưu tiên cao thứ 2 sau OV (cùng nhóm bảo vệ áp).
  */
 #define BMS_FAULT_IDX_OV             (0U)
-#define BMS_FAULT_IDX_OC             (1U)
-#define BMS_FAULT_IDX_OT             (2U)
-#define BMS_FAULT_IDX_INA_COMM       (3U)
-#define BMS_FAULT_IDX_STM_COMM       (4U)
+#define BMS_FAULT_IDX_UV             (1U)
+#define BMS_FAULT_IDX_OC             (2U)
+#define BMS_FAULT_IDX_OT             (3U)
+#define BMS_FAULT_IDX_INA_COMM       (4U)
+#define BMS_FAULT_IDX_STM_COMM       (5U)
+
+/**
+ * @brief   Mapping bảng từ index latch sang fault source code (CAN 0x101 B0).
+ *          Vì index không còn bằng (SRC - 1) sau khi chèn UV ở giữa, cần
+ *          bảng tra này để Process biết source code đúng để gửi.
+ */
+static const uint8 s_idxToSrc[BMS_FAULT_NUM_ENTRIES] =
+{
+    BMS_FAULT_SRC_OV,        /* 0 */
+    BMS_FAULT_SRC_UV,        /* 1 */
+    BMS_FAULT_SRC_OC,        /* 2 */
+    BMS_FAULT_SRC_OT,        /* 3 */
+    BMS_FAULT_SRC_INA_COMM,  /* 4 */
+    BMS_FAULT_SRC_STM_COMM   /* 5 */
+};
 
 /**
  * @brief   Sentinel for "no previous TX captured yet" so the first Process
@@ -89,6 +106,7 @@ static void BmsFault_SetEntry(uint8 idx, boolean active, uint8 severity, uint16 
 static volatile BmsFault_EntryType s_entries[BMS_FAULT_NUM_ENTRIES] =
 {
     { FALSE, BMS_FAULT_SEV_PROTECTION, 0U },   /* OV       */
+    { FALSE, BMS_FAULT_SEV_PROTECTION, 0U },   /* UV       */
     { FALSE, BMS_FAULT_SEV_PROTECTION, 0U },   /* OC       */
     { FALSE, BMS_FAULT_SEV_WARNING,    0U },   /* OT       */
     { FALSE, BMS_FAULT_SEV_WARNING,    0U },   /* INA_COMM */
@@ -166,13 +184,13 @@ void BmsFault_Process(void)
     chosenVal = 0U;
     found     = FALSE;
 
-    /* Priority order = array index order: OV > OC > OT > INA_COMM > STM_COMM. */
+    /* Priority order = array index order: OV > UV > OC > OT > INA_COMM > STM_COMM. */
     OsIf_SuspendAllInterrupts();
     for (i = 0U; (i < BMS_FAULT_NUM_ENTRIES) && (found == FALSE); i++)
     {
         if (s_entries[i].active == TRUE)
         {
-            chosenSrc = (uint8)(i + 1U);
+            chosenSrc = s_idxToSrc[i];
             chosenSev = s_entries[i].severity;
             chosenVal = s_entries[i].value;
             found     = TRUE;
@@ -208,13 +226,17 @@ void BmsFault_Process(void)
 void BmsFault_CheckElec(uint16 volt_mV, sint16 curr_raw)
 {
     boolean ovActive;
+    boolean uvActive;
     boolean ocActive;
     uint16  ovValue;
+    uint16  uvValue;
     uint16  ocValue;
 
     ovActive = FALSE;
+    uvActive = FALSE;
     ocActive = FALSE;
     ovValue  = 0U;
+    uvValue  = 0U;
     ocValue  = 0U;
 
     if (volt_mV > BMS_FAULT_OV_THRESH_MV)
@@ -222,6 +244,18 @@ void BmsFault_CheckElec(uint16 volt_mV, sint16 curr_raw)
         ovActive = TRUE;
         ovValue  = volt_mV;
     }
+    else if (volt_mV < BMS_FAULT_UV_THRESH_MV)
+    {
+        /* Undervoltage: pack < 3.0 V cho 1S Li-ion. Dưới ngưỡng này
+         * tiếp tục xả sẽ gây hỏng cell vĩnh viễn. */
+        uvActive = TRUE;
+        uvValue  = volt_mV;
+    }
+    else
+    {
+        /* Áp trong vùng an toàn -- cả 2 latch sẽ được clear bên dưới */
+    }
+
     if (curr_raw > BMS_FAULT_OC_THRESH_RAW)
     {
         ocActive = TRUE;
@@ -229,6 +263,7 @@ void BmsFault_CheckElec(uint16 volt_mV, sint16 curr_raw)
     }
 
     BmsFault_SetEntry(BMS_FAULT_IDX_OV, ovActive, BMS_FAULT_SEV_PROTECTION, ovValue);
+    BmsFault_SetEntry(BMS_FAULT_IDX_UV, uvActive, BMS_FAULT_SEV_PROTECTION, uvValue);
     BmsFault_SetEntry(BMS_FAULT_IDX_OC, ocActive, BMS_FAULT_SEV_PROTECTION, ocValue);
 }
 

@@ -33,23 +33,23 @@ endif
 
 # Add inputs and outputs from these tool invocations to the build variables 
 SECONDARY_SIZE += \
-CAPSTONE.siz \
+CAPSTONE_BMS_ECU1.siz \
 
 
 # All Target
-all: CAPSTONE.elf secondary-outputs
+all: CAPSTONE_BMS_ECU1.elf secondary-outputs
 
 # Tool invocations
-CAPSTONE.elf: $(OBJS) D:/workspaceS32ds3.6.7/CAPSTONE_BMS_ECU1/Project_Settings/Linker_Files/linker_flash_s32k144.ld $(USER_OBJS)
+CAPSTONE_BMS_ECU1.elf: $(OBJS) D:/CODE_NXP/CAPSTONE_BMS_ECU1/Project_Settings/Linker_Files/linker_flash_s32k144.ld $(USER_OBJS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: Standard S32DS C Linker'
-	arm-none-eabi-gcc -o "CAPSTONE.elf" "@CAPSTONE.args"  $(USER_OBJS)
+	arm-none-eabi-gcc -o "CAPSTONE_BMS_ECU1.elf" "@CAPSTONE_BMS_ECU1.args"  $(USER_OBJS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
-CAPSTONE.siz: CAPSTONE.elf
+CAPSTONE_BMS_ECU1.siz: CAPSTONE_BMS_ECU1.elf
 	@echo 'Invoking: Standard S32DS Print Size'
-	arm-none-eabi-size --format=berkeley CAPSTONE.elf
+	arm-none-eabi-size --format=berkeley CAPSTONE_BMS_ECU1.elf
 	@echo 'Finished building: $@'
 	@echo ' '
 

@@ -61,6 +61,7 @@ extern "C" {
 #define BMS_FAULT_SRC_OT             (0x03U)  /**< Overtemperature -- ONLY real T.  */
 #define BMS_FAULT_SRC_INA_COMM       (0x04U)  /**< INA219 I2C read error.           */
 #define BMS_FAULT_SRC_STM_COMM       (0x05U)  /**< STM32 temperature I2C error.     */
+#define BMS_FAULT_SRC_UV             (0x06U)  /**< Undervoltage (pack < threshold). */
 
 /**
  * @brief   Fault severity codes (CAN 0x101 byte 1).
@@ -69,25 +70,20 @@ extern "C" {
 #define BMS_FAULT_SEV_PROTECTION     (0x01U)  /**< Protection -- isolate / cut off. */
 
 /**
- * @brief   Protection thresholds.
+ * @brief   Protection thresholds (real 1S Li-ion cell, demo tải nhẹ).
  *
- * @details Demo setup = 1S Li-ion (single cell) running off a 5 V resistor
- *          rig until a real cell is wired in, so the OV threshold is
- *          relaxed to 5 500 mV. This both:
- *            - tolerates the 4.7-5.2 V PSU sag during demo, AND
- *            - is still safely above 4.2 V Li-ion full-charge if a real
- *              1S cell replaces the rig later.
+ * @details Demo setup chuyển sang pin thật + tải biến trở nhỏ:
+ *            OV : 4200 mV (4.2 V cell full-charge, ngưỡng strict 1S Li-ion).
+ *            UV : 3000 mV (3.0 V cell low-cutoff, dưới mức này gây hỏng cell).
+ *            OC : 400 mA  (tải demo nhỏ — burst > 0.4 A là bất thường).
+ *            OT : 55 deg C (warning Li-ion).
  *
- *          When migrating to a strict-protection deployment, set
- *          BMS_FAULT_OV_THRESH_MV to 4200U (4.2 V cell, 1S) or to
- *          12600U for a 3S pack.
- *
- *          OC : 3000 mA  (well above demo currents ~150 mA, leaves room
- *                          for real cell discharge bursts).
- *          OT : 55 deg C (warning level for Li-ion cells).
+ *          Khi đổi sang 3S pack: OV=12600U, UV=9000U (3.0V × 3 cell).
+ *          Khi đổi sang tải nặng: nâng OC lên tới 3000U cho cell 2 Ah.
  */
-#define BMS_FAULT_OV_THRESH_MV       (5500U)
-#define BMS_FAULT_OC_THRESH_MA       (3000)
+#define BMS_FAULT_OV_THRESH_MV       (4200U)
+#define BMS_FAULT_UV_THRESH_MV       (3000U)
+#define BMS_FAULT_OC_THRESH_MA       (400)
 #define BMS_FAULT_OT_THRESH_C        (55.0f)
 
 /**
@@ -137,12 +133,12 @@ void BmsFault_Init(void);
 void BmsFault_Process(void);
 
 /**
- * @brief   Evaluate electrical limits and update OV / OC latches accordingly.
+ * @brief   Evaluate electrical limits and update OV / UV / OC latches accordingly.
  *
  * @details Called from BmsApp_Task50ms() right after INA219 has been read.
  *          Each latch is set or cleared based on the current reading -- so a
- *          transient overvoltage will auto-clear on the next tick when the
- *          measurement returns below threshold.
+ *          transient overvoltage/undervoltage will auto-clear on the next tick
+ *          when the measurement returns inside [UV_THRESH, OV_THRESH].
  *
  * @param[in] volt_mV   Bus voltage in millivolts.
  * @param[in] curr_raw  Current encoded as 0.1 mA LSB (signed).

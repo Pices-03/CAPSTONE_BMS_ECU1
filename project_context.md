@@ -34,10 +34,10 @@
 | CAN baudrate     | 500 kbps — FlexCAN0 — PTE4 (RX) / PTE5 (TX)               |
 | I2C bus          | LPI2C0 — PTA2 (SDA) / PTA3 (SCL) — 100 kHz                |
 | System tick      | LPIT_0 CH_0 — 50 ms period — 48 MHz clock                  |
-| **Demo setup**   | **S32K144 5V rail + resistor (current) → tiến tới 1 cell pin thật** |
-| **Pack topology**| **1S Li-ion** (cell ≡ pack; chuyển sang nS chỉ cần đổi OCV table + OV threshold) |
+| **Demo setup**   | **Pin thật 1S Li-ion** + nguồn 2 chiều (INA219 đo signed bidirectional) |
+| **Pack topology**| **1S Li-ion** (cell ≡ pack; chuyển sang nS chỉ cần đổi OV/UV threshold) |
 | **Temperature**  | **STM32 slave** (1 NTC) — KHÔNG có ESP32 trong project        |
-| **SOC algorithm**| **Coulomb Counting** (OCV lookup là dead-code, re-enable bằng `BMS_SOC_DEMO_MODE=STD_OFF`) |
+| **SOC algorithm**| **Coulomb Counting** với SOC khởi tạo từ NVM (BMS_Nvm_ReadSoC) |
 
 ---
 
@@ -92,11 +92,11 @@ Byte[5] = CRC        XOR of Byte[0..4]
 | ID    | Name              | DLC | Period  | Source  | Signal layout                                                              |
 |-------|-------------------|-----|---------|---------|----------------------------------------------------------------------------|
 | 0x100 | BMS_ElecMeasure   | 8   | 50 ms   | INA219  | B0-B1: V (0.001V LSB), B2-B3: I signed (0.1mA LSB), B4-B5: P (0.1mW LSB), B6: status, B7: rsvd |
-| 0x101 | BMS_Fault         | 4   | Event   | MCU     | B0: fault source, B1: severity, B2-B3: fault value                        |
+| 0x101 | BMS_Fault         | 4   | Event   | MCU     | B0: fault source (0x01 OV, 0x02 OC, 0x03 OT, 0x04 INA_COMM, 0x05 STM_COMM, 0x06 UV), B1: severity, B2-B3: fault value |
 | 0x200 | BMS_Temperature   | 4   | 200 ms  | STM32   | B0-B2: temp raw ((T+40)/0.5), B3: status                                   |
-| 0x210 | BMS_Voltage       | 4   | 100 ms  | INA219  | B0-B1: pack voltage (0.001V LSB), B2: status, B3: rsvd                     |
-| 0x300 | BMS_SOC           | 6   | 100 ms  | MCU     | B0: SOC (0.5%LSB), B1: SOH, B2: state (0x01=chg/0x02=dchg), B3-B4: rsvd, B5: method |
-| 0x400 | BMS_Prediction    | 6   | 500 ms  | MCU     | B0-B1: TTE (min), B2-B3: TTF (min), B4: avg power (0.5W LSB), B5: valid flags |
+| 0x210 | BMS_Voltage       | 4   | 100 ms  | INA219  | B0-B1: pack voltage (0.001V LSB), B2: status, B3: warn flags (bit0=UV, bit1=OV) |
+| 0x300 | BMS_SOC           | 6   | 100 ms  | MCU     | B0: SOC (0.5%LSB), B1: state (0x00 IDLE/0x01 CHG/0x02 DCHG), B2: warn flags (bit0=UV, bit1=OV), B3: method (0x01 Coulomb), B4-B5: rsvd. SOH đã được bỏ. |
+| 0x400 | BMS_Prediction    | 6   | 500 ms  | MCU     | B0-B1: TTE (min), B2-B3: TTF (min), B4: SOC %, B5: valid flags |
 | 0x710 | HMI_CMD (RX)      | 3   | On demand | HMI  | B0: CMD (0x01=reset fault, 0x02=calib SOC, 0x03=snapshot)                  |
 
 ---
@@ -106,15 +106,16 @@ Byte[5] = CRC        XOR of Byte[0..4]
 | Code  | Source     | Threshold           | Severity  | Action          |
 |-------|------------|---------------------|-----------|-----------------|
 | 0x00  | NONE       | (clear event)       | —         | TX 0x101 (auto-clear, falling edge) |
-| 0x01  | OV         | > 5500 mV (1S demo, tolerant 5V rail) | Protection | TX 0x101 |
-| 0x02  | OC         | > 3000 mA           | Protection | TX 0x101        |
+| 0x01  | OV         | > 4200 mV (1S Li-ion full-charge) | Protection | TX 0x101 |
+| 0x02  | OC         | > 400 mA (demo tải nhẹ) | Protection | TX 0x101    |
 | 0x03  | OT         | > 55 °C (real T)    | Warning   | TX 0x101        |
 | 0x04  | INA_COMM   | INA219 I2C timeout  | Warning   | TX 0x101        |
 | 0x05  | STM_COMM   | STM32 packet error  | Warning   | TX 0x101        |
+| 0x06  | UV         | < 3000 mV (1S Li-ion low-cutoff) | Protection | TX 0x101 |
 
 ### Cơ chế gửi 0x101 (v2, state-based)
 
-- Mỗi source có 1 latch riêng (`s_entries[5]` trong BmsFault.c).
+- Mỗi source có 1 latch riêng (`s_entries[6]` trong BmsFault.c).
 - Check / SetCommError set latch = TRUE khi điều kiện vi phạm, FALSE khi normalised.
 - `BmsFault_Process()` mỗi tick 50 ms: pick latch active có priority cao nhất.
 - Chỉ TX 0x101 khi **(source, value) thay đổi** so với lần TX trước (edge-triggered).
@@ -488,14 +489,14 @@ void CanIf_TxConfirmation(PduIdType CanTxPduId);
 
 ```c
 /**
- * @brief   Overvoltage protection threshold (1S Li-ion + 5V demo rig).
- * @details = 5500 mV — relaxed above the 4.2 V cell limit so the demo
- *          (powered from a 5 V resistor rig with ~0.5 V sag) does not
- *          alarm. For strict 1S protection, set to 4200U; for 3S to 12600U.
- *          Fault code 0x01 is raised when bus voltage exceeds this value.
+ * @brief   Overvoltage protection threshold (1S Li-ion real pack).
+ * @details = 4200 mV — đúng ngưỡng full-charge của 1S Li-ion cell.
+ *          Fault code 0x01 raised khi bus voltage vượt giá trị này.
+ *          Đi đôi với UV threshold = 3000 mV (fault code 0x06).
+ *          Đổi sang 12600U cho 3S pack.
  *          Unit: millivolts (mV).
  */
-#define BMS_FAULT_OV_THRESH_MV   (5500U)
+#define BMS_FAULT_OV_THRESH_MV   (4200U)
 ```
 
 ---
@@ -593,6 +594,14 @@ static I2c_DataType s_ina219TxBuf[3U] = {0U, 0U, 0U};
 | 29 | INA219 Current_LSB lệch  | LSB = 97.66 µA → multiply float non-clean → khó scaling integer | Medium | ✅ Done (đổi sang LSB = 100 µA exact, Cal = 4096) |
 | 30 | CDD_INA219 thiếu API integer | Chỉ trả float → mọi caller phải cast lại | Medium | ✅ Done (thêm `ReadCurrent_uA / ReadVoltage_mV / ReadPower_uW / ReadShuntVoltage_uV`, giữ float API legacy) |
 | 31 | BmsFault.CheckTemp dùng float compare | `temp_C > 55.0f` không deterministic, ISO 26262 không ưa | Low | ✅ Done (so sánh `temp_raw > BMS_FAULT_OT_THRESH_RAW` = 190 integer) |
+| 32 | BmsFault thiếu Undervoltage | Pin Li-ion < 3.0 V → hỏng vĩnh viễn | High | ✅ Done (thêm `BMS_FAULT_SRC_UV=0x06`, `BMS_FAULT_UV_THRESH_MV=3000U`, latch IDX_UV, CheckElec check cả OV & UV) |
+| 33 | OV thresh 5500 mV quá lỏng | Pin thật 1S Li-ion: 4.2 V full-charge | High | ✅ Done (OV = 4200 mV) |
+| 34 | CAN 0x300 còn SOH byte | SOH không thuộc scope dự án | Medium | ✅ Done (xoá byte SOH, restructure: B0 SOC / B1 state / B2 warn / B3 method / B4-5 rsvd) |
+| 35 | Thiếu pack UV/OV display cho HMI | Chỉ có fault frame 0x101 event, HMI khó hiển thị "đang gần ngưỡng" | Medium | ✅ Done (thêm warn flags byte 3 vào 0x210, byte 2 vào 0x300) |
+| 36 | BIDIR_SIM / MapCurrent / ZERO_POINT dư thừa khi gắn pin thật | INA219 đã đo signed bidirectional khi có nguồn 2 chiều | Medium | ✅ Done (xoá `BMS_SOC_BIDIR_*`, `BMS_CURRENT_ZERO_POINT_mA`, hàm `BMS_SoC_MapCurrent`, hàm `BmsSoc_VirtualCurrent_mA`) |
+| 37 | BMS_SOC_INITIAL_PCT = 95% hardcode dư thừa | SOC init đã đọc từ NVM trong BmsApp_Init | Low | ✅ Done (xoá define) |
+| 38 | BmsApp_Task50ms đọc INA219 2 lần (debug `g_current`) | Lãng phí I2C, tăng risk timeout | Medium | ✅ Done (xoá static `g_current` và call thừa) |
+| 39 | Code có khối comment v1/v2 song song | Khó maintain, dễ confuse | Low | ✅ Done (xoá hết comment block ở cuối BMS_SoC.c, BMS_SoC.h, BmsApp.c, BmsApp.h) |
 
 ---
 
