@@ -502,7 +502,8 @@ Std_ReturnType BmsApp_Task50ms(void)
         /* ────── Virtual current mapping ──────
          * BMS_SoC_MapCurrent trả về giá trị signed (A), chuyển về mA
          */
-        virt_curr_mA = BmsSoc_VirtualCurrent_mA(curr_mA);
+        //virt_curr_mA = BmsSoc_VirtualCurrent_mA(curr_mA);
+        virt_curr_mA = curr_mA;
 
         /* Virtual power = virtual_I × V (signed) */
         virt_pow_mW = virt_curr_mA * (volt_mV / 1000.0f);
@@ -788,7 +789,8 @@ Std_ReturnType BmsApp_Task500ms(void)
     {
         /* remainingHours luôn DƯƠNG - đó là TTE hoặc TTF */
         /* Cần phân biệt đang xả hay sạc để gán vào đúng field */
-        float32 mappedCurrent_A = BMS_SoC_MapCurrent(curr_mA);
+        //float32 mappedCurrent_A = BMS_SoC_MapCurrent(curr_mA);
+    	float32 mappedCurrent_A = curr_mA;
 
         if (mappedCurrent_A > 0.0f)  /* Đang xả */
         {

@@ -91,65 +91,6 @@ float32 BMS_GetDeltaTime(void)
     return deltaSec;
 }
 
-/*
- * @brief Get elapsed time in seconds since last call, using GPT timer.
- *        Handles timer overflow and initializes on first call.
- * @return Elapsed time in seconds (0.0f on first call).
- */
-//float32 BMS_GetDeltaTime(void)
-//{
-//    uint32 timeNow;
-//    uint32 elapsedTicks;
-//    float32 deltaSec = 0.0f;
-//
-//    /* Get current timer value (ticks) */
-//    timeNow = Gpt_GetTimeElapsed(GptConf_GptChannelConfiguration_GptChannelConfiguration_1);
-//
-//    /* DEBUG: Lưu giá trị timeNow */
-//    g_dbg_timeNow = timeNow;
-//
-//    if (g_firstCall)
-//    {
-//        /* First call: just store the timestamp, don't calculate delta */
-//        g_firstCall = 0;
-//        g_timePrev = timeNow;
-//
-//        /* DEBUG: Lưu giá trị timePrev */
-//        g_dbg_timePrev = timeNow;
-//        g_dbg_elapsedTicks = 0;
-//        g_dbg_deltaTime = 0.0f;
-//    }
-//    else
-//    {
-//        /* Calculate elapsed ticks, handle 32-bit overflow */
-//        if (timeNow >= g_timePrev)
-//        {
-//            elapsedTicks = timeNow - g_timePrev;
-//        }
-//        else
-//        {
-//            elapsedTicks = (0xFFFFFFFFU - g_timePrev) + timeNow;
-//        }
-//
-//        /* Convert to seconds */
-//        deltaSec = (float32)elapsedTicks / TIMER_FREQ_HZ;
-//
-//        /* Update timestamp for next iteration */
-//        g_timePrev = timeNow;
-//
-//        /* ========== DEBUG: Lưu các giá trị để xem ========== */
-//        g_dbg_elapsedTicks = elapsedTicks;
-//        g_dbg_deltaTime = deltaSec;
-//        g_dbg_timePrev = g_timePrev;
-//        /* ================================================= */
-//    }
-//
-//    /* DEBUG: Tăng số lần gọi */
-//    g_dbg_callCount++;
-//
-//    return deltaSec;
-//}
-
 /**
  * @brief Initialize the SoC module with initial SoC percentage.
  * @param initialSoC_Percent Initial SoC (0-100%).
@@ -197,7 +138,8 @@ Std_ReturnType BMS_SoC_Update(float32 rawCurrent_mA)
     else
     {
 		/* Map raw current to signed current (positive = discharge, negative = charge) */
-		mappedCurrent_A = BMS_SoC_MapCurrent(rawCurrent_mA);
+		//mappedCurrent_A = BMS_SoC_MapCurrent(rawCurrent_mA);
+    	mappedCurrent_A = rawCurrent_mA / 1000;
 
 		/* Update charging/discharging flag based on mapped current */
 		BMS_SoC_State.IsCharging = (mappedCurrent_A < 0.0f);
@@ -278,7 +220,8 @@ float32 BMS_SoC_GetRemainingHours(float32 rawCurrent_mA)
     float32 remainingHours = 0.0f;
 
     /* Map raw current to signed current */
-    mappedCurrent_A = BMS_SoC_MapCurrent(rawCurrent_mA);
+    //mappedCurrent_A = BMS_SoC_MapCurrent(rawCurrent_mA);
+    mappedCurrent_A = rawCurrent_mA / 1000;
 
     if (mappedCurrent_A > 0.0f)  /* Discharging */
     {

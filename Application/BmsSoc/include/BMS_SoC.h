@@ -26,7 +26,7 @@ extern "C"
 /**
  * @brief Nominal battery capacity in Ampere-hours (Ah).
  */
-#define BMS_NOMINAL_CAPACITY_AH         (10.0f)
+#define BMS_NOMINAL_CAPACITY_AH         (2.0f)
 
 /**
  * @brief Low SoC warning threshold in percent (5%).
