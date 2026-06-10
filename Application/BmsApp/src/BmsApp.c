@@ -20,7 +20,6 @@
 #include "Std_Types.h"
 #include "BmsApp.h"
 #include "BmsFault.h"
-#include "BmsSoc_Cfg.h"
 #include "CDD_INA219.h"
 #include "CDD_STM32Temp.h"
 #include "BMS_Nvm.h"

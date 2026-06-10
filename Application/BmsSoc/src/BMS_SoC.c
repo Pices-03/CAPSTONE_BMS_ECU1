@@ -24,8 +24,8 @@
 static BMS_SoC_StateType BMS_SoC_State =
 {
     .CurrentSoC          = 0.0f,
-    .RemainingCapacityAh = 0.0f,
-    .NominalCapacityAh   = BMS_NOMINAL_CAPACITY_AH,
+    .RemainingCapacity_mAh = 0.0f,
+    .NominalCapacity_mAh   = BMS_NOMINAL_CAPACITY_MAH,
     .IsCharging          = FALSE,
     .LowSoCWarning       = FALSE
 };
@@ -92,8 +92,8 @@ Std_ReturnType BMS_SoC_Init(float32 initialSoC_Percent)
     else
     {
         BMS_SoC_State.CurrentSoC          = initialSoC_Percent;
-        BMS_SoC_State.NominalCapacityAh   = BMS_NOMINAL_CAPACITY_AH;
-        BMS_SoC_State.RemainingCapacityAh = (initialSoC_Percent / 100.0f) * BMS_NOMINAL_CAPACITY_AH;
+        BMS_SoC_State.NominalCapacity_mAh   = BMS_NOMINAL_CAPACITY_MAH;
+        BMS_SoC_State.RemainingCapacity_mAh = (initialSoC_Percent / 100.0f) * BMS_NOMINAL_CAPACITY_MAH;
         BMS_SoC_State.IsCharging          = FALSE;
         BMS_SoC_State.LowSoCWarning       = (BMS_SoC_State.CurrentSoC < BMS_SOC_WARNING_THRESHOLD);
     }
@@ -109,8 +109,7 @@ Std_ReturnType BMS_SoC_Update(float32 current_mA)
 {
     Std_ReturnType Status = E_OK;
     float32        deltaTime_sec;
-    float32        delta_Ah;
-    float32        current_A;
+    float32        delta_mAh;
 
     deltaTime_sec = BMS_GetDeltaTime();
 
@@ -120,29 +119,27 @@ Std_ReturnType BMS_SoC_Update(float32 current_mA)
     }
     else
     {
-        current_A = current_mA / 1000.0f;
-
         /* Dead zone quanh 0 A để chống nhiễu ADC khi idle */
-        if ((current_A < (BMS_CURRENT_DEAD_ZONE_mA / 1000.0f)) &&
-            (current_A > -(BMS_CURRENT_DEAD_ZONE_mA / 1000.0f)))
+        if ((current_mA < (BMS_CURRENT_DEAD_ZONE_mA)) &&
+            (current_mA > -(BMS_CURRENT_DEAD_ZONE_mA)))
         {
-            current_A = 0.0f;
+            current_mA = 0.0f;
         }
 
-        BMS_SoC_State.IsCharging = (current_A < 0.0f);
+        BMS_SoC_State.IsCharging = (current_mA < 0.0f);
 
-        /* Coulomb counting: ΔAh = I (A) × Δt (s) / 3600 (s/h) */
-        delta_Ah = current_A * deltaTime_sec / 3600.0f;
+        /* Coulomb counting: ΔmAh = I (mA) × Δt (s) / 3600 (s/mAh) */
+        delta_mAh = current_mA * deltaTime_sec / 3600.0f;
 
-        /* Discharge subtracts, charge adds (current âm → -delta_Ah dương) */
-        BMS_SoC_State.RemainingCapacityAh -= delta_Ah;
+        /* Discharge subtracts, charge adds (current âm → -delta_mAh dương) */
+        BMS_SoC_State.RemainingCapacity_mAh -= delta_mAh;
 
         BMS_SoC_LimitAndUpdateWarning();
 
-        if (BMS_SoC_State.NominalCapacityAh > 0.0f)
+        if (BMS_SoC_State.NominalCapacity_mAh > 0.0f)
         {
             BMS_SoC_State.CurrentSoC =
-                (BMS_SoC_State.RemainingCapacityAh / BMS_SoC_State.NominalCapacityAh) * 100.0f;
+                (BMS_SoC_State.RemainingCapacity_mAh / BMS_SoC_State.NominalCapacity_mAh) * 100.0f;
         }
         else
         {
@@ -165,18 +162,24 @@ uint8 BMS_SoC_Get(void)
 {
     float32 intSoC = BMS_SoC_State.CurrentSoC;
 
-    if (intSoC > 100.0f) { intSoC = 100.0f; }
-    if (intSoC < 0.0f)   { intSoC = 0.0f;   }
+    if (intSoC > 100.0f)
+    {
+        intSoC = 100.0f;
+    }
+    if (intSoC < 0.0f)
+    {
+        intSoC = 0.0f;
+    }
 
     return (uint8)(intSoC + 0.5f);
 }
 
 /**
- * @brief Get remaining capacity in Ah.
+ * @brief Get remaining capacity in mAh.
  */
-float32 BMS_SoC_GetRemainingAh(void)
+float32 BMS_SoC_GetRemaining_mAh(void)
 {
-    return BMS_SoC_State.RemainingCapacityAh;
+    return BMS_SoC_State.RemainingCapacity_mAh;
 }
 
 /**
@@ -185,33 +188,30 @@ float32 BMS_SoC_GetRemainingAh(void)
  */
 float32 BMS_SoC_GetRemainingHours(float32 current_mA)
 {
-    float32 current_A;
     float32 remainingHours = 0.0f;
-    float32 needed_Ah;
+    float32 needed_mAh;
 
-    current_A = current_mA / 1000.0f;
-
-    if (current_A > 0.0f)  /* Discharging */
+    if (current_mA > 0.0f)  /* Discharging */
     {
-        if (BMS_SoC_State.RemainingCapacityAh <= 0.0f)
+        if (BMS_SoC_State.RemainingCapacity_mAh <= 0.0f)
         {
             remainingHours = -1.0f;
         }
         else
         {
-            remainingHours = BMS_SoC_State.RemainingCapacityAh / current_A;
+            remainingHours = BMS_SoC_State.RemainingCapacity_mAh / current_mA;
         }
     }
-    else if (current_A < 0.0f)  /* Charging */
+    else if (current_mA < 0.0f)  /* Charging */
     {
-        needed_Ah = BMS_SoC_State.NominalCapacityAh - BMS_SoC_State.RemainingCapacityAh;
-        if (needed_Ah <= 0.0f)
+        needed_mAh = BMS_SoC_State.NominalCapacity_mAh - BMS_SoC_State.RemainingCapacity_mAh;
+        if (needed_mAh <= 0.0f)
         {
             remainingHours = 0.0f;
         }
         else
         {
-            remainingHours = needed_Ah / (-current_A);
+            remainingHours = needed_mAh / (-current_mA);
         }
     }
     else
@@ -239,12 +239,12 @@ boolean BMS_SoC_IsChargeWarning(void)
  */
 static void BMS_SoC_LimitAndUpdateWarning(void)
 {
-    if (BMS_SoC_State.RemainingCapacityAh < 0.0f)
+    if (BMS_SoC_State.RemainingCapacity_mAh < 0.0f)
     {
-        BMS_SoC_State.RemainingCapacityAh = 0.0f;
+        BMS_SoC_State.RemainingCapacity_mAh = 0.0f;
     }
-    if (BMS_SoC_State.RemainingCapacityAh > BMS_SoC_State.NominalCapacityAh)
+    if (BMS_SoC_State.RemainingCapacity_mAh > BMS_SoC_State.NominalCapacity_mAh)
     {
-        BMS_SoC_State.RemainingCapacityAh = BMS_SoC_State.NominalCapacityAh;
+        BMS_SoC_State.RemainingCapacity_mAh = BMS_SoC_State.NominalCapacity_mAh;
     }
 }

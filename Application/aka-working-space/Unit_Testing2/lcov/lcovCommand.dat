@@ -1,0 +1,14 @@
+CompileGcda: -fprofile-arcs .endCGA
+CompileGcno: -ftest-coverage .endCGO
+LinkingGcda: -fprofile-arcs .endLGA
+LinkingGcno: -ftest-coverage .endLGO
+LcovCommand: perl null\bin\lcov .endLC
+LcovBranch:  .endLB
+LcovInputDir: --capture --directory .endLID
+LcovOutputDir: --output-file .endLOD
+GenCommand: perl null\bin\genhtml .endGC
+GenBranchCommand:  .endGB
+GenOutputDir: --output-directory .endGOD
+GcovCommand: gcov .endGVC
+
+//end

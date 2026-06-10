@@ -25,11 +25,10 @@ extern "C"
 ==================================================================================================*/
 
 /**
- * @brief Nominal battery capacity in Ampere-hours (Ah).
- * @details Pin thật 1S Li-ion 2000 mAh = 2.0 Ah. Đồng bộ với
- *          BMS_SOC_NOMINAL_CAPACITY_MAH trong BmsSoc_Cfg.h.
+ * @brief Nominal battery capacity in Milliampere-hours (mAh).
+ * @details For a 1S Li-ion pack, typical capacity is around 2000 mAh. Adjust as needed for different packs.
  */
-#define BMS_NOMINAL_CAPACITY_AH         (2.0f)
+#define BMS_NOMINAL_CAPACITY_MAH         (2000.0f)
 
 /**
  * @brief Low SoC warning threshold in percent (5%).
@@ -37,8 +36,8 @@ extern "C"
 #define BMS_SOC_WARNING_THRESHOLD       (5.0f)
 
 /**
- * @brief Dead zone around 0 A (mA) -- chống nhiễu ADC quanh idle.
- *        |I| < 5 mA → coi như 0 → không tích phân vào SOC.
+ * @brief Dead zone for current measurement in mA to filter out noise when idle.
+ *          Adjust based on ADC noise characteristics.
  */
 #define BMS_CURRENT_DEAD_ZONE_mA      (5.0f)
 
@@ -52,8 +51,8 @@ extern "C"
 typedef struct
 {
     float32 CurrentSoC;          /* Current State of Charge (%) */
-    float32 RemainingCapacityAh; /* Remaining capacity in Ampere-hours (Ah) */
-    float32 NominalCapacityAh;   /* Nominal capacity in Ampere-hours (Ah) */
+    float32 RemainingCapacity_mAh; /* Remaining capacity in Milliampere-hours (mAh) */
+    float32 NominalCapacity_mAh;   /* Nominal capacity in Milliampere-hours (mAh) */
     boolean IsCharging;          /* Flag to indicate charging state */
     boolean LowSoCWarning;       /* Flag to indicate low SoC warning */
 } BMS_SoC_StateType;
@@ -86,9 +85,9 @@ Std_ReturnType BMS_SoC_Update(float32 current_mA);
 uint8 BMS_SoC_Get(void);
 
 /**
- * @brief       Get the remaining capacity in Ampere-hours.
+ * @brief       Get the remaining capacity in Milliampere-hours.
  */
-float32 BMS_SoC_GetRemainingAh(void);
+float32 BMS_SoC_GetRemaining_mAh(void);
 
 /**
  * @brief       Get estimated remaining hours of operation (discharge) or time

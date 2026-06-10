@@ -1,0 +1,6 @@
+{
+  "compilationCommands": {
+    ".\\BmsSoc\\src\\BMS_SoC.c": "gcc\u003c\u003cAKA_U00A0\u003e\u003e-c\u003c\u003cAKA_U00A0\u003e\u003e-w\u003c\u003cAKA_U00A0\u003e\u003e\".\\BmsSoc\\src\\BMS_SoC.c\"\u003c\u003cAKA_U00A0\u003e\u003e-I\"D:\\workspaceS32ds3.6.7\\CAPSTONE_BMS_ECU1\\Application\\BmsSoc\\include\"\u003c\u003cAKA_U00A0\u003e\u003e-I\"D:\\\\workspaceS32ds3.6.7\\\\CAPSTONE_BMS_ECU1\\\\Application\\\\aka-working-space\\\\Unit_Testing2\\\\user_code\\\\environment\"\u003c\u003cAKA_U00A0\u003e\u003e-o\"D:\\\\workspaceS32ds3.6.7\\\\CAPSTONE_BMS_ECU1\\\\Application\\\\aka-working-space\\\\Unit_Testing2\\\\instruments\\src\\BMS_SoC.akaignore.c.out\""
+  },
+  "executablePath": ""
+}
