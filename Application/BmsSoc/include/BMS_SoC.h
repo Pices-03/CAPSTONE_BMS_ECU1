@@ -24,16 +24,10 @@ extern "C"
 
 /**
  * @brief Nominal battery capacity in Milliampere-hours (mAh).
-<<<<<<< HEAD
  * @details Real 1S Li-ion 2000 mAh. Must stay in sync with
  *          BMS_SOC_NOMINAL_CAPACITY_MAH in BmsSoc_Cfg.h.
  */
 #define BMS_NOMINAL_CAPACITY_MAH        (2000.0f)
-=======
- * @details For a 1S Li-ion pack, typical capacity is around 2000 mAh. Adjust as needed for different packs.
- */
-#define BMS_NOMINAL_CAPACITY_MAH         (2000.0f)
->>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
 
 /**
  * @brief Low-SoC warning threshold (percent).
@@ -41,13 +35,8 @@ extern "C"
 #define BMS_SOC_WARNING_THRESHOLD       (5.0f)
 
 /**
-<<<<<<< HEAD
  * @brief Dead-zone around 0 A (mA) -- suppress ADC noise near idle.
  *        |I| below 5 mA is treated as zero (no integration into SoC).
-=======
- * @brief Dead zone for current measurement in mA to filter out noise when idle.
- *          Adjust based on ADC noise characteristics.
->>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
  */
 #define BMS_CURRENT_DEAD_ZONE_mA        (5.0f)
 
