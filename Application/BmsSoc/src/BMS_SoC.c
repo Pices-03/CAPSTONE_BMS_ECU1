@@ -110,11 +110,19 @@ Std_ReturnType BMS_SoC_Init(float32 initialSoC_Percent)
     }
     else
     {
+<<<<<<< HEAD
         BMS_SoC_State.CurrentSoC            = initialSoC_Percent;
         BMS_SoC_State.NominalCapacity_mAh   = BMS_NOMINAL_CAPACITY_MAH;
         BMS_SoC_State.RemainingCapacity_mAh = (initialSoC_Percent / 100.0f) * BMS_NOMINAL_CAPACITY_MAH;
         BMS_SoC_State.IsCharging            = FALSE;
         BMS_SoC_State.LowSoCWarning         = (BMS_SoC_State.CurrentSoC < BMS_SOC_WARNING_THRESHOLD);
+=======
+        BMS_SoC_State.CurrentSoC          = initialSoC_Percent;
+        BMS_SoC_State.NominalCapacity_mAh   = BMS_NOMINAL_CAPACITY_MAH;
+        BMS_SoC_State.RemainingCapacity_mAh = (initialSoC_Percent / 100.0f) * BMS_NOMINAL_CAPACITY_MAH;
+        BMS_SoC_State.IsCharging          = FALSE;
+        BMS_SoC_State.LowSoCWarning       = (BMS_SoC_State.CurrentSoC < BMS_SOC_WARNING_THRESHOLD);
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
     }
 
     return Status;
@@ -125,9 +133,15 @@ Std_ReturnType BMS_SoC_Init(float32 initialSoC_Percent)
  */
 Std_ReturnType BMS_SoC_Update(float32 current_mA)
 {
+<<<<<<< HEAD
     Std_ReturnType Status        = E_OK;
     float32        deltaTime_sec = 0.0f;
     float32        delta_mAh     = 0.0f;
+=======
+    Std_ReturnType Status = E_OK;
+    float32        deltaTime_sec;
+    float32        delta_mAh;
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
 
     deltaTime_sec = BMS_GetDeltaTime();
 
@@ -137,19 +151,32 @@ Std_ReturnType BMS_SoC_Update(float32 current_mA)
     }
     else
     {
+<<<<<<< HEAD
         /* Dead-zone around 0 mA to suppress ADC noise when idle. */
         if ((current_mA < BMS_CURRENT_DEAD_ZONE_mA) &&
             (current_mA > -BMS_CURRENT_DEAD_ZONE_mA))
+=======
+        /* Dead zone quanh 0 A để chống nhiễu ADC khi idle */
+        if ((current_mA < (BMS_CURRENT_DEAD_ZONE_mA)) &&
+            (current_mA > -(BMS_CURRENT_DEAD_ZONE_mA)))
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
         {
             current_mA = 0.0f;
         }
 
         BMS_SoC_State.IsCharging = (current_mA < 0.0f);
 
+<<<<<<< HEAD
         /* Coulomb counting: delta_mAh = I (mA) * delta_t (s) / 3600 (s/h). */
         delta_mAh = (current_mA * deltaTime_sec) / 3600.0f;
 
         /* Discharge subtracts capacity, charge adds (current < 0 => -delta > 0). */
+=======
+        /* Coulomb counting: ΔmAh = I (mA) × Δt (s) / 3600 (s/mAh) */
+        delta_mAh = current_mA * deltaTime_sec / 3600.0f;
+
+        /* Discharge subtracts, charge adds (current âm → -delta_mAh dương) */
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
         BMS_SoC_State.RemainingCapacity_mAh -= delta_mAh;
 
         BMS_SoC_LimitAndUpdateWarning();
@@ -199,7 +226,11 @@ uint8 BMS_SoC_Get(void)
 }
 
 /**
+<<<<<<< HEAD
  * @brief See BMS_SoC.h.
+=======
+ * @brief Get remaining capacity in mAh.
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
  */
 float32 BMS_SoC_GetRemaining_mAh(void)
 {
@@ -212,9 +243,15 @@ float32 BMS_SoC_GetRemaining_mAh(void)
 float32 BMS_SoC_GetRemainingHours(float32 current_mA)
 {
     float32 remainingHours = 0.0f;
+<<<<<<< HEAD
     float32 needed_mAh     = 0.0f;
 
     if (current_mA > 0.0f)        /* Discharging */
+=======
+    float32 needed_mAh;
+
+    if (current_mA > 0.0f)  /* Discharging */
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
     {
         if (BMS_SoC_State.RemainingCapacity_mAh <= 0.0f)
         {
@@ -222,11 +259,18 @@ float32 BMS_SoC_GetRemainingHours(float32 current_mA)
         }
         else
         {
+<<<<<<< HEAD
             /* mAh / mA = hours */
             remainingHours = BMS_SoC_State.RemainingCapacity_mAh / current_mA;
         }
     }
     else if (current_mA < 0.0f)   /* Charging */
+=======
+            remainingHours = BMS_SoC_State.RemainingCapacity_mAh / current_mA;
+        }
+    }
+    else if (current_mA < 0.0f)  /* Charging */
+>>>>>>> 7f9d9c1c0b3ca0310b0ddd0df518a9552f70215d
     {
         needed_mAh = BMS_SoC_State.NominalCapacity_mAh - BMS_SoC_State.RemainingCapacity_mAh;
         if (needed_mAh <= 0.0f)
