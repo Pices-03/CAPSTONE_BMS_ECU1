@@ -9,8 +9,8 @@
  *             without pulling the full driver API.
  */
 
-#ifndef _CDD_INA219_TYPES_H_
-#define _CDD_INA219_TYPES_H_
+#ifndef _CDD_INA219_TYPES_
+#define _CDD_INA219_TYPES_
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,4 +38,4 @@ typedef enum
 }
 #endif
 
-#endif /* _CDD_INA219_TYPES_H_ */
+#endif /* _CDD_INA219_TYPES_ */

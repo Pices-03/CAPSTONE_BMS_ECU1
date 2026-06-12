@@ -141,8 +141,8 @@
 * Tool : S32DS 3.5 / RTD 2.0.0
 *==================================================================================================*/
 
-#ifndef CDD_INA219_CFG_H
-#define CDD_INA219_CFG_H
+#ifndef _CDD_INA219_CFG_
+#define _CDD_INA219_CFG_
 
 /*==================================================================================================
 * HARDWARE CONSTANTS
@@ -224,5 +224,5 @@
  */
 #define INA219_VOLTAGE_LSB_MV           4.0f
 
-#endif /* CDD_INA219_CFG_H */
+#endif /* _CDD_INA219_CFG_ */
 

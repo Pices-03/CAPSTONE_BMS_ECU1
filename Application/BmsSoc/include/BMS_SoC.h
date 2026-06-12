@@ -1,106 +1,102 @@
-/*==================================================================================================
-* Project : BMS AUTOSAR Demo
-* Platform : CORTEXM
-* Component : BMS_SoC
-* Module : BMS_SoC.h
-* Description : Header file for State of Charge (SoC) estimation module (Coulomb Counting).
-*               Real 1S Li-ion pack -- INA219 trả về dòng signed bidirectional.
-*==================================================================================================*/
+/**
+ * @file       BMS_SoC.h
+ * @version    2.0.0
+ * @brief      State-of-Charge (SoC) estimation -- Coulomb counting.
+ *
+ * @details    Real 1S Li-ion pack. INA219 returns a signed bidirectional
+ *             current (positive = discharge, negative = charge), so no
+ *             virtual mapping is required.
+ */
 
-#ifndef BMS_SOC_H
-#define BMS_SOC_H
+#ifndef _BMS_SOC_
+#define _BMS_SOC_
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-/*==================================================================================================
-* INCLUDE FILES
-==================================================================================================*/
 #include "Std_Types.h"
 
-/*==================================================================================================
-* DEFINITIONS AND MACROS
-==================================================================================================*/
+/*******************************************************************************
+* Definitions
+*******************************************************************************/
 
 /**
- * @brief Nominal battery capacity in Ampere-hours (Ah).
- * @details Pin thật 1S Li-ion 2000 mAh = 2.0 Ah. Đồng bộ với
- *          BMS_SOC_NOMINAL_CAPACITY_MAH trong BmsSoc_Cfg.h.
+ * @brief Nominal battery capacity in Milliampere-hours (mAh).
+ * @details Real 1S Li-ion 2000 mAh. Must stay in sync with
+ *          BMS_SOC_NOMINAL_CAPACITY_MAH in BmsSoc_Cfg.h.
  */
-#define BMS_NOMINAL_CAPACITY_AH         (2.0f)
+#define BMS_NOMINAL_CAPACITY_MAH        (2000.0f)
 
 /**
- * @brief Low SoC warning threshold in percent (5%).
+ * @brief Low-SoC warning threshold (percent).
  */
 #define BMS_SOC_WARNING_THRESHOLD       (5.0f)
 
 /**
- * @brief Dead zone around 0 A (mA) -- chống nhiễu ADC quanh idle.
- *        |I| < 5 mA → coi như 0 → không tích phân vào SOC.
+ * @brief Dead-zone around 0 A (mA) -- suppress ADC noise near idle.
+ *        |I| below 5 mA is treated as zero (no integration into SoC).
  */
-#define BMS_CURRENT_DEAD_ZONE_mA      (5.0f)
-
-/*==================================================================================================
-* TYPEDEFS AND STRUCTURES
-==================================================================================================*/
+#define BMS_CURRENT_DEAD_ZONE_mA        (5.0f)
 
 /**
- * @brief Structure to hold the SoC module's state variables.
+ * @brief Structure holding the SoC module's state variables.
  */
 typedef struct
 {
-    float32 CurrentSoC;          /* Current State of Charge (%) */
-    float32 RemainingCapacityAh; /* Remaining capacity in Ampere-hours (Ah) */
-    float32 NominalCapacityAh;   /* Nominal capacity in Ampere-hours (Ah) */
-    boolean IsCharging;          /* Flag to indicate charging state */
-    boolean LowSoCWarning;       /* Flag to indicate low SoC warning */
+    float32 CurrentSoC;            /* Current State of Charge (%)                  */
+    float32 RemainingCapacity_mAh; /* Remaining capacity in Milliampere-hours (mAh)*/
+    float32 NominalCapacity_mAh;   /* Nominal capacity in Milliampere-hours (mAh)  */
+    boolean IsCharging;            /* TRUE while charging (current < 0)            */
+    boolean LowSoCWarning;         /* TRUE when SoC < BMS_SOC_WARNING_THRESHOLD    */
 } BMS_SoC_StateType;
 
-/*==================================================================================================
-* FUNCTION PROTOTYPES
-==================================================================================================*/
+/*******************************************************************************
+* API
+*******************************************************************************/
 
 /**
- * @brief Get elapsed time in seconds since last call, using GPT timer.
+ * @brief Get elapsed time in seconds since the last call, via GPT timer.
  */
 float32 BMS_GetDeltaTime(void);
 
 /**
- * @brief       Initialize the SoC module.
- * @param[in]   initialSoC_Percent  Initial SoC percentage upon startup (0.0 - 100.0).
+ * @brief       Initialise the SoC module.
+ * @param[in]   initialSoC_Percent  Initial SoC at start-up (0.0 - 100.0).
+ * @return      E_OK on success, E_NOT_OK if the input is out of range.
  */
 Std_ReturnType BMS_SoC_Init(float32 initialSoC_Percent);
 
 /**
- * @brief       Update the SoC using Coulomb counting.
- * @param[in]   current_mA  Signed current (mA). Positive = discharge, negative = charge.
+ * @brief       Update SoC using Coulomb counting.
+ * @param[in]   current_mA  Signed current (mA). Positive = discharge,
+ *                          negative = charge.
+ * @return      E_OK on success, E_NOT_OK if deltaTime is non-positive.
  */
 Std_ReturnType BMS_SoC_Update(float32 current_mA);
 
 /**
- * @brief       Get the current State of Charge.
- * @return      uint8  Current SoC in percentage (0 - 100).
+ * @brief       Get the current State of Charge (rounded percent).
+ * @return      SoC percentage in [0, 100].
  */
 uint8 BMS_SoC_Get(void);
 
 /**
- * @brief       Get the remaining capacity in Ampere-hours.
+ * @brief       Get the remaining capacity in Milliampere-hours.
  */
-float32 BMS_SoC_GetRemainingAh(void);
+float32 BMS_SoC_GetRemaining_mAh(void);
 
 /**
- * @brief       Get estimated remaining hours of operation (discharge) or time
- *              to full charge.
+ * @brief       Estimate remaining hours (discharge) or time to full (charge).
  * @param[in]   current_mA  Signed current (mA). >0 = discharging, <0 = charging.
- * @return      float32  Remaining hours. 1e6 if current ~0 (no change). -1 if
- *              empty while discharging.
+ * @return      Remaining hours. 1e6 if current is approximately zero.
+ *              -1 if empty while still discharging.
  */
 float32 BMS_SoC_GetRemainingHours(float32 current_mA);
 
 /**
- * @brief       Check if the low SoC warning is active.
+ * @brief       Check whether the low-SoC warning is active.
  */
 boolean BMS_SoC_IsChargeWarning(void);
 
@@ -108,4 +104,4 @@ boolean BMS_SoC_IsChargeWarning(void);
 }
 #endif
 
-#endif /* BMS_SOC_H */
+#endif /* _BMS_SOC_ */

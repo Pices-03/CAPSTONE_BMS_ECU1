@@ -200,8 +200,8 @@
 //
 //#endif /* _CDD_INA219_H_ */
 
-#ifndef CDD_INA219_H
-#define CDD_INA219_H
+#ifndef _CDD_INA219_
+#define _CDD_INA219_
 
 #ifdef __cplusplus
 extern "C"
@@ -275,4 +275,4 @@ boolean CDD_INA219_IsConnected(void);
 }
 #endif
 
-#endif /* CDD_INA219_H */
+#endif /* _CDD_INA219_ */

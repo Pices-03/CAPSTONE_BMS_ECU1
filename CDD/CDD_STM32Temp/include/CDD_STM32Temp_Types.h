@@ -8,8 +8,8 @@
  *             include only types without pulling the full driver API.
  */
 
-#ifndef _CDD_STM32TEMP_TYPES_H_
-#define _CDD_STM32TEMP_TYPES_H_
+#ifndef _CDD_STM32TEMP_TYPES_
+#define _CDD_STM32TEMP_TYPES_
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,4 +41,4 @@ typedef enum
 }
 #endif
 
-#endif /* _CDD_STM32TEMP_TYPES_H_ */
+#endif /* _CDD_STM32TEMP_TYPES_ */

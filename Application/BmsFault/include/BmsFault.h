@@ -30,8 +30,8 @@
  *             fault data into 0x101 byte 2-3 (backlog #22 root cause).
  */
 
-#ifndef _BMSFAULT_H_
-#define _BMSFAULT_H_
+#ifndef _BMSFAULT_
+#define _BMSFAULT_
 
 #ifdef __cplusplus
 extern "C" {
@@ -70,16 +70,16 @@ extern "C" {
 #define BMS_FAULT_SEV_PROTECTION     (0x01U)  /**< Protection -- isolate / cut off. */
 
 /**
- * @brief   Protection thresholds (real 1S Li-ion cell, demo tải nhẹ).
+ * @brief   Protection thresholds (real 1S Li-ion cell, light demo load).
  *
- * @details Demo setup chuyển sang pin thật + tải biến trở nhỏ:
- *            OV : 4200 mV (4.2 V cell full-charge, ngưỡng strict 1S Li-ion).
- *            UV : 3000 mV (3.0 V cell low-cutoff, dưới mức này gây hỏng cell).
- *            OC : 400 mA  (tải demo nhỏ — burst > 0.4 A là bất thường).
- *            OT : 55 deg C (warning Li-ion).
+ * @details Real cell + small variable resistor load:
+ *            OV : 4200 mV (4.2 V cell full-charge, strict 1S Li-ion limit).
+ *            UV : 3000 mV (3.0 V cell low-cutoff, below this damages cell).
+ *            OC : 400 mA  (demo load is small; burst > 0.4 A is abnormal).
+ *            OT : 55 deg C (Li-ion warning level).
  *
- *          Khi đổi sang 3S pack: OV=12600U, UV=9000U (3.0V × 3 cell).
- *          Khi đổi sang tải nặng: nâng OC lên tới 3000U cho cell 2 Ah.
+ *          For 3S pack: OV = 12600U, UV = 9000U (3.0 V * 3 cells).
+ *          For heavy load: raise OC up to 3000U for a 2 Ah cell.
  */
 #define BMS_FAULT_OV_THRESH_MV       (4200U)
 #define BMS_FAULT_UV_THRESH_MV       (3000U)
@@ -90,7 +90,7 @@ extern "C" {
  * @brief   Overtemperature threshold expressed in raw temp encoding (integer).
  * @details temp_raw = (temp_C + 40) / 0.5
  *          55 degC -> raw = (55 + 40) / 0.5 = 190
- *          Cho phép so sánh integer thuần trên safety path, không cần float.
+ *          Allows pure-integer compare on the safety path; no float needed.
  */
 #define BMS_FAULT_OT_THRESH_RAW      (190U)
 
@@ -114,7 +114,7 @@ void BmsFault_Init(void);
  * @brief   Run the fault state machine: pick highest active latch and TX
  *          CAN 0x101 if the (source, value) pair changed.
  *
- * @details Priority order (highest first): OV, OC, OT, INA_COMM, STM_COMM.
+ * @details Priority order (highest first): OV, UV, OC, OT, INA_COMM, STM_COMM.
  *          When NO latch is active, the chosen source is BMS_FAULT_SRC_NONE
  *          and a clear frame is emitted exactly once (on the falling edge).
  *
@@ -201,4 +201,4 @@ void BmsFault_Reset(void);
 }
 #endif
 
-#endif /* _BMSFAULT_H_ */
+#endif /* _BMSFAULT_ */

@@ -9,16 +9,16 @@
  * @date    2026-05-16
  */
 
-/*==================================================================================================
- *                                        INCLUDE FILES
- *==================================================================================================*/
+/*******************************************************************************
+ * Includes
+ ******************************************************************************/
 #include "BMS_Nvm.h"
 #include "Mem_43_INFLS.h"
 #include <math.h>
 
-/*==================================================================================================
- *                                   INTERNAL TYPES
- *==================================================================================================*/
+/*******************************************************************************
+ * Definitions
+ ******************************************************************************/
 
 /**
  * @brief Internal states of the NVM state machine
@@ -29,29 +29,35 @@ typedef enum {
     NVM_STATE_WRITING   /**< Flash write operation in progress */
 } BMS_Nvm_StateInternalType;
 
-/*==================================================================================================
- *                                   STATIC VARIABLES
- *==================================================================================================*/
+/*******************************************************************************
+ * Prototypes
+ ******************************************************************************/
+
+/* No static prototypes -- all internal helpers inlined. */
+
+/*******************************************************************************
+ * Variables
+ ******************************************************************************/
 
 /**
  * @brief Current state of the NVM state machine
  */
-static BMS_Nvm_StateInternalType Nvm_CurrentState = NVM_STATE_IDLE;
+static BMS_Nvm_StateInternalType s_nvmCurrentState = NVM_STATE_IDLE;
 
 /**
  * @brief SoC value pending to be written (held during erase operation)
  */
-static float32 Pending_SoC_Value = 0.0f;
+static float32 s_pendingSocValue = 0.0f;
 
 /**
  * @brief Transmit buffer for Flash write operation
  * @details Size defined by BMS_NVM_PAGE_SIZE (8 bytes)
  */
-static uint8 txBuffer[BMS_NVM_PAGE_SIZE];
+static uint8 s_txBuffer[BMS_NVM_PAGE_SIZE];
 
-/*==================================================================================================
- *                                   GLOBAL FUNCTIONS
- *==================================================================================================*/
+/*******************************************************************************
+ * Code
+ ******************************************************************************/
 
 /**
  * @brief Initialize the NVM module and Mem_43_INFLS driver
@@ -101,18 +107,18 @@ float32 BMS_Nvm_ReadSoC(void)
 BMS_Nvm_ReturnType BMS_Nvm_WriteSoC_Async(float32 socValue)
 {
     /* Reject new request if previous operation still in progress */
-    if (Nvm_CurrentState != NVM_STATE_IDLE)
+    if (s_nvmCurrentState != NVM_STATE_IDLE)
     {
         return NVM_RET_BUSY;
     }
 
     /* Store value for later use during write phase */
-    Pending_SoC_Value = socValue;
+    s_pendingSocValue = socValue;
 
     /* Start erase operation (must erase full sector before write) */
     if (E_OK == Mem_43_INFLS_Erase(MEM_43_INFLS_INSTANCE_0_ID, BMS_NVM_SOC_ADDR, BMS_NVM_SECTOR_SIZE))
     {
-        Nvm_CurrentState = NVM_STATE_ERASING;
+        s_nvmCurrentState = NVM_STATE_ERASING;
         return NVM_RET_OK;
     }
 
@@ -129,30 +135,30 @@ void BMS_Nvm_MainFunction(void)
     Mem_43_INFLS_MainFunction();
     Mem_43_INFLS_JobResultType jobResult = Mem_43_INFLS_GetJobResult(MEM_43_INFLS_INSTANCE_0_ID);
 
-    switch (Nvm_CurrentState)
+    switch (s_nvmCurrentState)
     {
         case NVM_STATE_ERASING:
             if (jobResult == MEM_43_INFLS_JOB_OK)
             {
                 /* Erase completed successfully - proceed to write phase */
                 /* Prepare buffer with the pending SoC value */
-                *((float32*)txBuffer) = Pending_SoC_Value;
+                *((float32*)s_txBuffer) = s_pendingSocValue;
 
                 /* Start write operation */
-                if (E_OK == Mem_43_INFLS_Write(MEM_43_INFLS_INSTANCE_0_ID, BMS_NVM_SOC_ADDR, txBuffer, BMS_NVM_PAGE_SIZE))
+                if (E_OK == Mem_43_INFLS_Write(MEM_43_INFLS_INSTANCE_0_ID, BMS_NVM_SOC_ADDR, s_txBuffer, BMS_NVM_PAGE_SIZE))
                 {
-                    Nvm_CurrentState = NVM_STATE_WRITING;
+                    s_nvmCurrentState = NVM_STATE_WRITING;
                 }
                 else
                 {
                     /* Write initiation failed - abort sequence */
-                    Nvm_CurrentState = NVM_STATE_IDLE;
+                    s_nvmCurrentState = NVM_STATE_IDLE;
                 }
             }
             else if (jobResult == MEM_43_INFLS_JOB_FAILED)
             {
                 /* Erase failed - abort sequence, keep previous data */
-                Nvm_CurrentState = NVM_STATE_IDLE;
+                s_nvmCurrentState = NVM_STATE_IDLE;
             }
             break;
 
@@ -160,7 +166,7 @@ void BMS_Nvm_MainFunction(void)
             if (jobResult == MEM_43_INFLS_JOB_OK || jobResult == MEM_43_INFLS_JOB_FAILED)
             {
                 /* Write completed (success or failure) - sequence finished */
-                Nvm_CurrentState = NVM_STATE_IDLE;
+                s_nvmCurrentState = NVM_STATE_IDLE;
             }
             break;
 
@@ -177,7 +183,7 @@ void BMS_Nvm_MainFunction(void)
  */
 BMS_Nvm_ReturnType BMS_Nvm_GetStatus(void)
 {
-    if (Nvm_CurrentState == NVM_STATE_IDLE)
+    if (s_nvmCurrentState == NVM_STATE_IDLE)
     {
         return NVM_RET_OK;
     }

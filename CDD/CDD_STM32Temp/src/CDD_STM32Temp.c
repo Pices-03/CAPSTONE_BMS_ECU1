@@ -21,6 +21,12 @@
 #include "CDD_I2c.h"
 
 /*******************************************************************************
+* Definitions
+*******************************************************************************/
+
+/* All macros are defined in CDD_STM32Temp_Cfg.h and CDD_STM32Temp_Types.h */
+
+/*******************************************************************************
 * Prototypes
 *******************************************************************************/
 
@@ -59,10 +65,9 @@ static I2c_DataType s_stm32RxBuf[STM32_TEMP_PACKET_SIZE] = {0U, 0U, 0U, 0U, 0U, 
  */
 static uint8 STM32Temp_ComputeXorCrc(const I2c_DataType *pData, uint8 len)
 {
-    uint8 crc;
-    uint8 i;
+    uint8 crc = 0x00U;
+    uint8 i = 0U;
 
-    crc = 0x00U;
     for (i = 0U; i < len; i++)
     {
         crc ^= pData[i];
@@ -88,12 +93,9 @@ static STM32_Temp_ReturnType STM32Temp_I2cRead(void)
         STM32_TEMP_SLAVE_ADDR, FALSE, FALSE, FALSE,
         STM32_TEMP_PACKET_SIZE, I2C_RECEIVE_DATA, s_stm32RxBuf
     };
-    uint32                 timeout;
-    I2c_StatusType         status;
-    STM32_Temp_ReturnType  ret;
-
-    timeout = STM32_TEMP_I2C_TIMEOUT;
-    ret     = STM32_TEMP_OK;
+    uint32                 timeout = STM32_TEMP_I2C_TIMEOUT;
+    I2c_StatusType         status  = I2C_CH_IDLE;
+    STM32_Temp_ReturnType  ret     = STM32_TEMP_OK;
 
     (void)I2c_AsyncTransmit(STM32_TEMP_I2C_CHANNEL, &reqRead);
     do
@@ -123,12 +125,9 @@ void CDD_STM32Temp_Init(void)
  */
 STM32_Temp_ReturnType CDD_STM32Temp_Read(float32 *pOutTemperature_C)
 {
-    STM32_Temp_ReturnType ret;
-    uint8                 crcCalc;
-    uint16                tempX10;
-
-    crcCalc = 0U;
-    tempX10 = 0U;
+    STM32_Temp_ReturnType ret     = STM32_TEMP_OK;
+    uint8                 crcCalc = 0U;
+    uint16                tempX10 = 0U;
 
     if (pOutTemperature_C == NULL_PTR)
     {

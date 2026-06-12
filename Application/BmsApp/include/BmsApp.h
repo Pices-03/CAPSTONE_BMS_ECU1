@@ -8,13 +8,13 @@
  *             CanIf callbacks (TxConfirmation, RxIndication, BusOff,
  *             ControllerModeIndication) and the I2c callback hook.
  *
- *             The pack functions are public so that test code (V-model §12)
- *             can verify byte-by-byte signal layout without running the
- *             scheduler.
+ *             The pack functions are public so that test code (V-model
+ *             section 12) can verify byte-by-byte signal layout without
+ *             running the scheduler.
  */
 
-#ifndef _BMSAPP_H_
-#define _BMSAPP_H_
+#ifndef _BMSAPP_
+#define _BMSAPP_
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,9 +28,10 @@ extern "C" {
 *******************************************************************************/
 
 /**
- * @brief   Bus state codes for CAN 0x300 byte 2.
- * @details IDLE thêm vào v3 để HMI có thể hiển thị trạng thái "nghỉ" khi
- *          dòng nằm trong dead zone. HMI đã có sẵn icon ⏸ map từ 0x00.
+ * @brief   Bus state codes for CAN 0x300 byte 1.
+ * @details IDLE was added in v3 so the HMI can render an "at rest" state
+ *          while the current sits inside the dead zone. The HMI already
+ *          maps icon 0x00 -> idle (paused).
  */
 #define BMS_STATE_IDLE               (0x00U)
 #define BMS_STATE_CHARGING           (0x01U)
@@ -105,4 +106,5 @@ Std_ReturnType BmsApp_Task500ms(void);
 }
 #endif
 
-#endif /* _BMSAPP_H_ */
+#endif /* _BMSAPP_ */
+

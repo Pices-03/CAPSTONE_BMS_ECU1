@@ -413,8 +413,8 @@
 /*==================================================================================================
 * LOCAL VARIABLES
 ==================================================================================================*/
-static uint8 INA219_TxBuffer[INA219_TX_BUF_SIZE];
-static uint8 INA219_RxBuffer[INA219_RX_BUF_SIZE];
+static uint8 s_ina219TxBuffer[INA219_TX_BUF_SIZE];
+static uint8 s_ina219RxBuffer[INA219_RX_BUF_SIZE];
 
 /*==================================================================================================
 * LOCAL FUNCTION PROTOTYPES
@@ -610,15 +610,15 @@ boolean CDD_INA219_IsConnected(void)
  */
 static Std_ReturnType INA219_WriteRegister(uint8 RegAddr, uint16 Value)
 {
-    I2c_RequestType Request;
-    uint32 timeout;
-    I2c_StatusType status;
+    I2c_RequestType Request = {0};
+    uint32 timeout = 0U;
+    I2c_StatusType status = I2C_CH_IDLE;
     Std_ReturnType ret = E_OK;
 
     /* Prepare TX buffer: register address + MSB + LSB */
-    INA219_TxBuffer[0] = RegAddr;
-    INA219_TxBuffer[1] = (uint8)(Value >> 8);
-    INA219_TxBuffer[2] = (uint8)(Value & 0xFF);
+    s_ina219TxBuffer[0] = RegAddr;
+    s_ina219TxBuffer[1] = (uint8)(Value >> 8U);
+    s_ina219TxBuffer[2] = (uint8)(Value & 0xFFU);
 
     /* Setup I2C request */
     Request.SlaveAddress = (I2c_AddressType)INA219_I2C_ADDRESS;
@@ -627,7 +627,7 @@ static Std_ReturnType INA219_WriteRegister(uint8 RegAddr, uint16 Value)
     Request.RepeatedStart = FALSE;
     Request.BufferSize = INA219_TX_BUF_SIZE;
     Request.DataDirection = I2C_SEND_DATA;
-    Request.DataBuffer = INA219_TxBuffer;
+    Request.DataBuffer = s_ina219TxBuffer;
 
     /* Start async transmission */
     (void)I2c_AsyncTransmit(INA219_I2C_CHANNEL, &Request);
@@ -653,65 +653,71 @@ static Std_ReturnType INA219_WriteRegister(uint8 RegAddr, uint16 Value)
  */
 static Std_ReturnType INA219_ReadRegister(uint8 RegAddr, uint16 *ValuePtr)
 {
-    I2c_RequestType Request;
-    uint32 timeout;
-    I2c_StatusType status;
+    I2c_RequestType Request = {0};
+    uint32 timeout = 0U;
+    I2c_StatusType status = I2C_CH_IDLE;
     Std_ReturnType ret = E_OK;
 
     if (ValuePtr == NULL_PTR)
     {
-        return E_NOT_OK;
+        ret = E_NOT_OK;
     }
-
-    /* ========== STEP 1: Write register pointer ========== */
-    INA219_TxBuffer[0] = RegAddr;
-
-    Request.SlaveAddress = (I2c_AddressType)INA219_I2C_ADDRESS;
-    Request.BitsSlaveAddressSize = FALSE;
-    Request.ExpectNack = FALSE;
-    Request.RepeatedStart = TRUE;  /* Use Repeated Start for read */
-    Request.BufferSize = INA219_REG_PTR_SIZE;
-    Request.DataDirection = I2C_SEND_DATA;
-    Request.DataBuffer = INA219_TxBuffer;
-
-    (void)I2c_AsyncTransmit(INA219_I2C_CHANNEL, &Request);
-
-    /* Poll until transmission completes */
-    timeout = INA219_I2C_TIMEOUT;
-    do
+    else
     {
-        status = I2c_GetStatus(INA219_I2C_CHANNEL);
-        timeout--;
-    } while ((status == I2C_CH_SEND) && (timeout > 0U));
+        /* ========== STEP 1: Write register pointer ========== */
+        s_ina219TxBuffer[0] = RegAddr;
 
-    if (timeout == 0U)
-    {
-        return E_NOT_OK;
+        Request.SlaveAddress = (I2c_AddressType)INA219_I2C_ADDRESS;
+        Request.BitsSlaveAddressSize = FALSE;
+        Request.ExpectNack = FALSE;
+        Request.RepeatedStart = TRUE;  /* Use Repeated Start for read */
+        Request.BufferSize = INA219_REG_PTR_SIZE;
+        Request.DataDirection = I2C_SEND_DATA;
+        Request.DataBuffer = s_ina219TxBuffer;
+
+        (void)I2c_AsyncTransmit(INA219_I2C_CHANNEL, &Request);
+
+        /* Poll until transmission completes */
+        timeout = INA219_I2C_TIMEOUT;
+        do
+        {
+            status = I2c_GetStatus(INA219_I2C_CHANNEL);
+            timeout--;
+        } while ((status == I2C_CH_SEND) && (timeout > 0U));
+
+        if (timeout == 0U)
+        {
+            ret = E_NOT_OK;
+        }
+        else
+        {
+            /* ========== STEP 2: Read 2 bytes of data ========== */
+            Request.RepeatedStart = FALSE;
+            Request.BufferSize = INA219_RX_BUF_SIZE;
+            Request.DataDirection = I2C_RECEIVE_DATA;
+            Request.DataBuffer = s_ina219RxBuffer;
+
+            (void)I2c_AsyncTransmit(INA219_I2C_CHANNEL, &Request);
+
+            /* Poll until receive completes */
+            timeout = INA219_I2C_TIMEOUT;
+            do
+            {
+                status = I2c_GetStatus(INA219_I2C_CHANNEL);
+                timeout--;
+            } while ((status == I2C_CH_RECEIVE) && (timeout > 0U));
+
+            if (timeout == 0U)
+            {
+                ret = E_NOT_OK;
+            }
+            else
+            {
+                /* Combine MSB and LSB into 16-bit value */
+                *ValuePtr = (uint16)(((uint16)s_ina219RxBuffer[0] << 8U) | (uint16)s_ina219RxBuffer[1]);
+            }
+        }
     }
-
-    /* ========== STEP 2: Read 2 bytes of data ========== */
-    Request.RepeatedStart = FALSE;
-    Request.BufferSize = INA219_RX_BUF_SIZE;
-    Request.DataDirection = I2C_RECEIVE_DATA;
-    Request.DataBuffer = INA219_RxBuffer;
-
-    (void)I2c_AsyncTransmit(INA219_I2C_CHANNEL, &Request);
-
-    /* Poll until receive completes */
-    timeout = INA219_I2C_TIMEOUT;
-    do
-    {
-        status = I2c_GetStatus(INA219_I2C_CHANNEL);
-        timeout--;
-    } while ((status == I2C_CH_RECEIVE) && (timeout > 0U));
-
-    if (timeout == 0U)
-    {
-        return E_NOT_OK;
-    }
-
-    /* Combine MSB and LSB into 16-bit value */
-    *ValuePtr = (uint16)((INA219_RxBuffer[0] << 8) | INA219_RxBuffer[1]);
 
     return ret;
 }

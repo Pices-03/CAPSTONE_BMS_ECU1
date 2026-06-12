@@ -12,8 +12,8 @@
  *             Not interrupt-safe -- do not call from ISR context.
  */
 
-#ifndef _CDD_STM32TEMP_H_
-#define _CDD_STM32TEMP_H_
+#ifndef _CDD_STM32TEMP_
+#define _CDD_STM32TEMP_
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,4 +77,4 @@ STM32_Temp_ReturnType CDD_STM32Temp_Read(float32 *pOutTemperature_C);
 }
 #endif
 
-#endif /* _CDD_STM32TEMP_H_ */
+#endif /* _CDD_STM32TEMP_ */

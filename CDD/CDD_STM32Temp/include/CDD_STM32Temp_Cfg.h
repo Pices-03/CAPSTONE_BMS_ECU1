@@ -16,8 +16,8 @@
  *             Slave address 0x10 = OwnAddress1 (32) >> 1.
  */
 
-#ifndef _CDD_STM32TEMP_CFG_H_
-#define _CDD_STM32TEMP_CFG_H_
+#ifndef _CDD_STM32TEMP_CFG_
+#define _CDD_STM32TEMP_CFG_
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,4 +84,4 @@ extern "C" {
 }
 #endif
 
-#endif /* _CDD_STM32TEMP_CFG_H_ */
+#endif /* _CDD_STM32TEMP_CFG_ */

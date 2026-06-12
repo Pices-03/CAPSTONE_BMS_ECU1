@@ -44,13 +44,14 @@
 #define BMS_FAULT_OC_THRESH_RAW      ((sint16)(BMS_FAULT_OC_THRESH_MA * 10))
 
 /**
- * @brief   Number of latch entries (OV, OC, OT, INA_COMM, STM_COMM, UV).
+ * @brief   Number of latch entries (OV, UV, OC, OT, INA_COMM, STM_COMM).
  */
 #define BMS_FAULT_NUM_ENTRIES        (6U)
 
 /**
  * @brief   Latch indices. Priority order = array index order (lower wins).
- *          UV ưu tiên cao thứ 2 sau OV (cùng nhóm bảo vệ áp).
+ *          UV gets the second-highest priority after OV (same voltage
+ *          protection group).
  */
 #define BMS_FAULT_IDX_OV             (0U)
 #define BMS_FAULT_IDX_UV             (1U)
@@ -58,21 +59,6 @@
 #define BMS_FAULT_IDX_OT             (3U)
 #define BMS_FAULT_IDX_INA_COMM       (4U)
 #define BMS_FAULT_IDX_STM_COMM       (5U)
-
-/**
- * @brief   Mapping bảng từ index latch sang fault source code (CAN 0x101 B0).
- *          Vì index không còn bằng (SRC - 1) sau khi chèn UV ở giữa, cần
- *          bảng tra này để Process biết source code đúng để gửi.
- */
-static const uint8 s_idxToSrc[BMS_FAULT_NUM_ENTRIES] =
-{
-    BMS_FAULT_SRC_OV,        /* 0 */
-    BMS_FAULT_SRC_UV,        /* 1 */
-    BMS_FAULT_SRC_OC,        /* 2 */
-    BMS_FAULT_SRC_OT,        /* 3 */
-    BMS_FAULT_SRC_INA_COMM,  /* 4 */
-    BMS_FAULT_SRC_STM_COMM   /* 5 */
-};
 
 /**
  * @brief   Sentinel for "no previous TX captured yet" so the first Process
@@ -99,6 +85,22 @@ static void BmsFault_SetEntry(uint8 idx, boolean active, uint8 severity, uint16 
 /*******************************************************************************
 * Variables
 *******************************************************************************/
+
+/**
+ * @brief   Lookup table mapping latch index to fault source code
+ *          (CAN 0x101 byte 0).
+ * @details Required because after inserting UV in the middle of the latch
+ *          array the source code is no longer (index + 1).
+ */
+static const uint8 s_idxToSrc[BMS_FAULT_NUM_ENTRIES] =
+{
+    BMS_FAULT_SRC_OV,        /* 0 */
+    BMS_FAULT_SRC_UV,        /* 1 */
+    BMS_FAULT_SRC_OC,        /* 2 */
+    BMS_FAULT_SRC_OT,        /* 3 */
+    BMS_FAULT_SRC_INA_COMM,  /* 4 */
+    BMS_FAULT_SRC_STM_COMM   /* 5 */
+};
 
 /**
  * @brief   Per-source latches. Index order = priority (lower wins).
@@ -150,7 +152,7 @@ static void BmsFault_SetEntry(uint8 idx, boolean active, uint8 severity, uint16 
  */
 void BmsFault_Init(void)
 {
-    uint8 i;
+    uint8 i = 0U;
 
     OsIf_SuspendAllInterrupts();
     for (i = 0U; i < BMS_FAULT_NUM_ENTRIES; i++)
@@ -172,19 +174,15 @@ void BmsFault_Init(void)
  */
 void BmsFault_Process(void)
 {
-    uint8       chosenSrc;
-    uint8       chosenSev;
-    uint16      chosenVal;
-    uint8       i;
-    boolean     found;
-    Can_PduType pdu;
+    uint8       chosenSrc = BMS_FAULT_SRC_NONE;
+    uint8       chosenSev = BMS_FAULT_SEV_WARNING;
+    uint16      chosenVal = 0U;
+    uint8       i         = 0U;
+    boolean     found     = FALSE;
+    Can_PduType pdu       = {0U, 0U, 0U, NULL_PTR};
 
-    chosenSrc = BMS_FAULT_SRC_NONE;
-    chosenSev = BMS_FAULT_SEV_WARNING;
-    chosenVal = 0U;
-    found     = FALSE;
-
-    /* Priority order = array index order: OV > UV > OC > OT > INA_COMM > STM_COMM. */
+    /* Priority order = array index order:
+     * OV > UV > OC > OT > INA_COMM > STM_COMM. */
     OsIf_SuspendAllInterrupts();
     for (i = 0U; (i < BMS_FAULT_NUM_ENTRIES) && (found == FALSE); i++)
     {
@@ -198,9 +196,9 @@ void BmsFault_Process(void)
     }
     OsIf_ResumeAllInterrupts();
 
-    /* Edge-triggered TX: send on every change of (source, value) -- this
-     * covers the rising edge (NONE -> fault), the falling edge (fault -> NONE)
-     * and switches between two faults (e.g. OT -> OV). */
+    /* Edge-triggered TX: send on every change of (source, value). This covers
+     * the rising edge (NONE -> fault), the falling edge (fault -> NONE) and
+     * switches between two faults (e.g. OT -> OV). */
     if ((chosenSrc != s_lastTxSrc) || (chosenVal != s_lastTxVal))
     {
         s_faultSdu[0U] = chosenSrc;
@@ -225,19 +223,12 @@ void BmsFault_Process(void)
  */
 void BmsFault_CheckElec(uint16 volt_mV, sint16 curr_raw)
 {
-    boolean ovActive;
-    boolean uvActive;
-    boolean ocActive;
-    uint16  ovValue;
-    uint16  uvValue;
-    uint16  ocValue;
-
-    ovActive = FALSE;
-    uvActive = FALSE;
-    ocActive = FALSE;
-    ovValue  = 0U;
-    uvValue  = 0U;
-    ocValue  = 0U;
+    boolean ovActive = FALSE;
+    boolean uvActive = FALSE;
+    boolean ocActive = FALSE;
+    uint16  ovValue  = 0U;
+    uint16  uvValue  = 0U;
+    uint16  ocValue  = 0U;
 
     if (volt_mV > BMS_FAULT_OV_THRESH_MV)
     {
@@ -246,14 +237,14 @@ void BmsFault_CheckElec(uint16 volt_mV, sint16 curr_raw)
     }
     else if (volt_mV < BMS_FAULT_UV_THRESH_MV)
     {
-        /* Undervoltage: pack < 3.0 V cho 1S Li-ion. Dưới ngưỡng này
-         * tiếp tục xả sẽ gây hỏng cell vĩnh viễn. */
+        /* Undervoltage: pack below 3.0 V for 1S Li-ion. Continuing to
+         * discharge under this threshold permanently damages the cell. */
         uvActive = TRUE;
         uvValue  = volt_mV;
     }
     else
     {
-        /* Áp trong vùng an toàn -- cả 2 latch sẽ được clear bên dưới */
+        /* Voltage inside the safe range -- both latches cleared below. */
     }
 
     if (curr_raw > BMS_FAULT_OC_THRESH_RAW)
@@ -272,16 +263,15 @@ void BmsFault_CheckElec(uint16 volt_mV, sint16 curr_raw)
  */
 void BmsFault_CheckTemp(float32 temp_C, uint8 temp_raw)
 {
-    boolean otActive;
-    uint16  otValue;
+    boolean otActive = FALSE;
+    uint16  otValue  = 0U;
 
-    otActive = FALSE;
-    otValue  = 0U;
-    (void)temp_C;     /* float view giữ trong signature cho backward compat */
+    (void)temp_C;     /* Float view kept in signature for backward compatibility. */
 
-    /* Safety-critical compare: dùng INTEGER (temp_raw vs OT_RAW = 190).
-     * Trước đây dùng `temp_C > 55.0f` -- compare float gồm rounding ULP,
-     * ISO 26262 khuyến cáo deterministic integer cho safety threshold. */
+    /* Safety-critical compare uses INTEGER (temp_raw vs OT_RAW = 190).
+     * The previous implementation compared `temp_C > 55.0f`, which carries
+     * ULP rounding; ISO 26262 recommends deterministic integers for safety
+     * thresholds. */
     if (temp_raw > (uint8)BMS_FAULT_OT_THRESH_RAW)
     {
         otActive = TRUE;
@@ -296,10 +286,8 @@ void BmsFault_CheckTemp(float32 temp_C, uint8 temp_raw)
  */
 void BmsFault_SetCommError(uint8 source, boolean active, uint8 errCode)
 {
-    uint8  idx;
-    uint16 val;
-
-    idx = BMS_FAULT_NUM_ENTRIES;   /* sentinel = "no valid index" */
+    uint8  idx = BMS_FAULT_NUM_ENTRIES;   /* sentinel = "no valid index" */
+    uint16 val = 0U;
 
     if (source == BMS_FAULT_SRC_INA_COMM)
     {
@@ -311,7 +299,7 @@ void BmsFault_SetCommError(uint8 source, boolean active, uint8 errCode)
     }
     else
     {
-        /* Ignore unsupported sources -- defensive against caller misuse */
+        /* Ignore unsupported sources -- defensive against caller misuse. */
     }
 
     if (idx < BMS_FAULT_NUM_ENTRIES)
@@ -326,7 +314,7 @@ void BmsFault_SetCommError(uint8 source, boolean active, uint8 errCode)
  */
 void BmsFault_Reset(void)
 {
-    uint8 i;
+    uint8 i = 0U;
 
     OsIf_SuspendAllInterrupts();
     for (i = 0U; i < BMS_FAULT_NUM_ENTRIES; i++)

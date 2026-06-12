@@ -9,8 +9,8 @@
  * @date    2026-05-16
  */
 
-#ifndef BMS_NVM_H
-#define BMS_NVM_H
+#ifndef _BMS_NVM_
+#define _BMS_NVM_
 
 #ifdef __cplusplus
 extern "C" {
@@ -113,4 +113,4 @@ BMS_Nvm_ReturnType BMS_Nvm_GetStatus(void);
 }
 #endif
 
-#endif /* BMS_NVM_H */
+#endif /* _BMS_NVM_ */

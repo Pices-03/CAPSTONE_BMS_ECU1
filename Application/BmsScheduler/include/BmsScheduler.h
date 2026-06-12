@@ -8,7 +8,7 @@
  *             is invoked from interrupt context every 50 ms and only sets a
  *             volatile flag; BmsScheduler_Run() polls that flag from the
  *             super-loop in main() and dispatches application tasks at the
- *             rates documented in §5 of project_context.md:
+ *             rates documented in section 5 of project_context.md:
  *                  every  50 ms : BmsFault_Process(), BmsApp_Task50ms()
  *                  every 100 ms : BmsApp_Task100ms()
  *                  every 200 ms : BmsApp_Task200ms()
@@ -18,8 +18,8 @@
  *             original main.c (backlog item #10).
  */
 
-#ifndef _BMSSCHEDULER_H_
-#define _BMSSCHEDULER_H_
+#ifndef _BMSSCHEDULER_
+#define _BMSSCHEDULER_
 
 #ifdef __cplusplus
 extern "C" {
@@ -107,4 +107,5 @@ void BmsScheduler_Tick(void);
 }
 #endif
 
-#endif /* _BMSSCHEDULER_H_ */
+#endif /* _BMSSCHEDULER_ */
+
