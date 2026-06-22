@@ -82,7 +82,7 @@ extern "C" {
  *          For heavy load: raise OC up to 3000U for a 2 Ah cell.
  */
 #define BMS_FAULT_OV_THRESH_MV       (4200U)
-#define BMS_FAULT_UV_THRESH_MV       (3000U)
+#define BMS_FAULT_UV_THRESH_MV       (3340U)
 #define BMS_FAULT_OC_THRESH_MA       (400)
 #define BMS_FAULT_OT_THRESH_C        (55.0f)
 

@@ -23,6 +23,16 @@ extern "C"
 *******************************************************************************/
 
 /**
+ * @brief   Average current window for SoC estimation (seconds).
+ */
+#define BMS_AVG_CURRENT_WINDOW_SEC     (60U)   /* 1 phút */
+
+/**
+ * @brief   Average current window for SoC estimation (samples).
+ */
+#define BMS_AVG_CURRENT_SAMPLES        (1200U) /* 1 phút @ 50ms tick */
+
+/**
  * @brief Nominal battery capacity in Milliampere-hours (mAh).
  * @details Real 1S Li-ion 2000 mAh. Must stay in sync with
  *          BMS_SOC_NOMINAL_CAPACITY_MAH in BmsSoc_Cfg.h.

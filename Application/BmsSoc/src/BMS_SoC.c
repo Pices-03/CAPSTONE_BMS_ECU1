@@ -57,6 +57,11 @@ static uint32 s_timePrev  = 0U;
  */
 static uint8  s_firstCall = 1U;
 
+/* Thêm biến moving average cho dòng điện */
+static volatile float32 s_avgCurrent_mA = 0.0f;
+static volatile float32 s_currentSum_mA = 0.0f;
+static volatile uint16  s_currentCount = 0U;
+
 /*******************************************************************************
 * Code
 *******************************************************************************/
@@ -144,6 +149,16 @@ Std_ReturnType BMS_SoC_Update(float32 current_mA)
             current_mA = 0.0f;
         }
 
+        s_currentSum_mA += current_mA;
+        s_currentCount++;
+
+        if (s_currentCount >= BMS_AVG_CURRENT_SAMPLES)
+        {
+            s_avgCurrent_mA = s_currentSum_mA / (float32)s_currentCount;
+            s_currentSum_mA = 0.0f;
+            s_currentCount = 0U;
+        }
+
         BMS_SoC_State.IsCharging = (current_mA < 0.0f);
 
         /* Coulomb counting: delta_mAh = I (mA) * delta_t (s) / 3600 (s/h). */
@@ -213,8 +228,18 @@ float32 BMS_SoC_GetRemainingHours(float32 current_mA)
 {
     float32 remainingHours = 0.0f;
     float32 needed_mAh     = 0.0f;
+    float32 currentToUse;
 
-    if (current_mA > 0.0f)        /* Discharging */
+    if (s_currentCount > 0 && s_avgCurrent_mA > 0.0f)
+    {
+        currentToUse = s_avgCurrent_mA;
+    }
+    else
+    {
+        currentToUse = current_mA;
+    }
+
+    if (currentToUse > 0.0f)        /* Discharging */
     {
         if (BMS_SoC_State.RemainingCapacity_mAh <= 0.0f)
         {
@@ -223,10 +248,10 @@ float32 BMS_SoC_GetRemainingHours(float32 current_mA)
         else
         {
             /* mAh / mA = hours */
-            remainingHours = BMS_SoC_State.RemainingCapacity_mAh / current_mA;
+            remainingHours = BMS_SoC_State.RemainingCapacity_mAh / currentToUse;
         }
     }
-    else if (current_mA < 0.0f)   /* Charging */
+    else if (currentToUse < 0.0f)   /* Charging */
     {
         needed_mAh = BMS_SoC_State.NominalCapacity_mAh - BMS_SoC_State.RemainingCapacity_mAh;
         if (needed_mAh <= 0.0f)
@@ -235,7 +260,7 @@ float32 BMS_SoC_GetRemainingHours(float32 current_mA)
         }
         else
         {
-            remainingHours = needed_mAh / (-current_mA);
+            remainingHours = needed_mAh / (-currentToUse);
         }
     }
     else                          /* Approximately zero current */
