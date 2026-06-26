@@ -183,7 +183,7 @@ Std_ReturnType BMS_SoC_Update(float32 current_mA)
         {
             BMS_SoC_State.CurrentSoC = 0.0f;
         }
-        if (BMS_SoC_State.CurrentSoC > 100.0f)
+        else if (BMS_SoC_State.CurrentSoC > 100.0f)
         {
             BMS_SoC_State.CurrentSoC = 100.0f;
         }
