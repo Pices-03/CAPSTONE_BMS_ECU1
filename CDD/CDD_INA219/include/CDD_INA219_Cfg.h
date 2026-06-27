@@ -71,10 +71,10 @@
 #define INA219_CURRENT_LSB               (INA219_MAX_EXPECTED_CURRENT_A / 32768.0f)
 #define INA219_CALIBRATION_VALUE         (uint16)(0.04096f / (INA219_CURRENT_LSB * INA219_SHUNT_RESISTOR_OHMS))
 
-/**
- * @brief Actual current LSB after calibration (for verification)
- */
-#define INA219_ACTUAL_CURRENT_LSB        (0.04096f / (INA219_CALIBRATION_VALUE * INA219_SHUNT_RESISTOR_OHMS))
+// /**
+//  * @brief Actual current LSB after calibration (for verification)
+//  */
+// #define INA219_ACTUAL_CURRENT_LSB        (0.04096f / (INA219_CALIBRATION_VALUE * INA219_SHUNT_RESISTOR_OHMS))
 
 /**
  * @brief Bus Voltage LSB in millivolts per LSB (from datasheet)

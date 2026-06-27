@@ -87,8 +87,8 @@ Std_ReturnType CDD_INA219_ReadCurrent_mA(float32 *CurrentPtr)
         Status = INA219_ReadRegister(INA219_REG_CURRENT, &RawCurrent);
         if (E_OK == Status)
         {
-            /* Convert raw data to mA using the Actual LSB from Cfg */
-            *CurrentPtr = (float32)((sint16)RawCurrent) * INA219_ACTUAL_CURRENT_LSB * 1000.0f;
+            /* Convert raw data to mA using the LSB from Cfg */
+            *CurrentPtr = (float32)((sint16)RawCurrent) * INA219_CURRENT_LSB * 1000.0f;
         }
     }
 
@@ -139,7 +139,7 @@ Std_ReturnType CDD_INA219_ReadPower(float32 *PowerPtr)
     if (E_OK == Status)
     {
         /* Power = RawPower × Current_LSB × 32 (from datasheet) */
-        *PowerPtr = (float32)RawPower * INA219_ACTUAL_CURRENT_LSB * 32.0f;
+        *PowerPtr = (float32)RawPower * INA219_CURRENT_LSB * 32.0f;
     }
     return Status;
 }
